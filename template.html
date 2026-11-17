@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set Time Beaters</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16191d; --muted: #667085; --line: #e3e6ea;
+    --accent: #2563eb; --accent-soft: #e8efff; --gold: #b7791f; --good: #15803d; --red: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --card: #171b21; --text: #e8eaed; --muted: #8b95a3; --line: #272d36;
+      --accent: #6b9bff; --accent-soft: #1c2a47; --gold: #e3b341; --good: #4ade80; --red: #f87171;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1216; --card: #171b21; --text: #e8eaed; --muted: #8b95a3; --line: #272d36;
+    --accent: #6b9bff; --accent-soft: #1c2a47; --gold: #e3b341; --good: #4ade80; --red: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0; font-size: 14px; }
+  .theme { background: var(--card); border: 1px solid var(--line); color: var(--text);
+           border-radius: 8px; padding: 6px 10px; cursor: pointer; font: inherit; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .seg { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: 7px;
+                cursor: pointer; font: inherit; }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  input[type=search] { flex: 1; min-width: 180px; background: var(--card); border: 1px solid var(--line);
+                       color: var(--text); border-radius: 10px; padding: 8px 12px; font: inherit; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600;
+       background: var(--card); position: sticky; top: 0; }
+  th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sortable:hover { color: var(--accent); }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.player { cursor: pointer; }
+  tr.player:hover td { background: var(--accent-soft); }
+  .rank { color: var(--muted); width: 48px; font-variant-numeric: tabular-nums; }
+  .rank.top { color: var(--gold); font-weight: 700; }
+  .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 80px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .detail td { background: var(--bg); padding: 12px 16px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px;
+          font-size: 13px; font-variant-numeric: tabular-nums; text-decoration: none; color: var(--text); }
+  .sec + .sec { margin-top: 12px; }
+  .sec h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .chip.miss em { color: var(--gold); }
+  .chip.tier1 em { color: var(--red); }
+  .chip.tier2 em { color: var(--muted); }
+  .chip em { font-style: normal; color: var(--good); margin-left: 4px; }
+  .chip:hover { border-color: var(--accent); }
+  .scroll { max-height: 70vh; overflow: auto; }
+  .more { display: block; width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--line);
+          background: var(--card); color: var(--accent); cursor: pointer; font: inherit; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+  a { color: var(--accent); }
+  footer { color: var(--muted); font-size: 13px; margin-top: 18px; }
+  @media (max-width: 560px) { .hide-sm { display: none; } th, td { padding: 8px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Set Time Beaters</h1>
+      <p class="sub">How many tracks each player has a replay faster than the set time &middot; data from tmuf.exchange &amp; tmnf.exchange</p>
+    </div>
+    <button class="theme" id="theme" title="Toggle theme">Theme</button>
+  </header>
+
+  <div class="controls">
+    <div class="seg" id="datasets" role="group" aria-label="Dataset"></div>
+    <div class="seg" id="views" role="group" aria-label="View">
+      <button data-view="players" aria-pressed="true">Players</button>
+      <button data-view="tracks" aria-pressed="false">Tracks</button>
+      <button data-view="improvements" aria-pressed="false">Improvements</button>
+    </div>
+    <input type="search" id="q" placeholder="Search player or track…" aria-label="Search">
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div class="card"><div class="scroll" id="out"></div></div>
+  <footer>A time faster than or equal to the set time (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.
+    The Extension and All views match players by name, because user ids differ between tmuf and tmnf.
+    Generated __GENERATED__.</footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+const $ = (s) => document.querySelector(s);
+const fmt = (ms) => { const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000;
+  return m ? `${m}:${s.toFixed(2).padStart(5, "0")}` : s.toFixed(2); };
+const fv = (t, v) => t.mode === "score" ? String(v) : fmt(v);
+const delta = (t, v) => v === t.set ? "equal" : t.mode === "score" ? `+${v - t.set}` : `−${((t.set - v) / 1000).toFixed(2)}`;
+const missBy = (t, v) => t.mode === "score" ? `−${t.set - v}` : `+${((v - t.set) / 1000).toFixed(2)}`;
+const link = (t) => `https://${t.site || "tmuf"}.exchange/trackshow/${t.id}`;
+const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props);
+  kids.forEach(k => n.append(k)); return n; };
+
+// Build the "All" dataset by merging players by name (user ids differ between tmuf and tmnf).
+function merge(sets) {
+  const tracks = sets.flatMap(d => d.tracks);
+  const byId = new Map();
+  for (const d of sets) for (const p of d.players) {
+    const k = p.name.toLowerCase();
+    const m = byId.get(k) || { id: k, name: p.name, times: {}, miss: {} };
+    Object.assign(m.times, p.times); Object.assign(m.miss, p.miss || {}); byId.set(k, m);
+  }
+  const players = [...byId.values()].map(p => ({ ...p, count: Object.keys(p.times).length }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return { label: "All", tracks, players };
+}
+const datasets = [...DATA, ...(DATA.length > 1 ? [merge(DATA)] : [])];
+let cur = datasets[0], view = "players", shown = 100, open = new Set();
+const sort = { key: null, dir: "desc" };    // Tracks view sort state; key null = original order
+const isort = { key: "pct", dir: "desc" };  // Improvements view sort state
+
+// Sortable <th>: clicking sorts by `key` (first click: text asc, numbers desc), again flips the direction.
+function sortTh(label, key, st, cls = "num", textKey = false) {
+  const on = st.key === key;
+  return el("th", { className: `${cls} sortable`, tabIndex: 0, textContent: label + (on ? (st.dir === "asc" ? " ▲" : " ▼") : ""),
+    ariaSort: on ? (st.dir === "asc" ? "ascending" : "descending") : "none",
+    onclick: () => { Object.assign(st, on ? { dir: st.dir === "desc" ? "asc" : "desc" }
+                                          : { key, dir: textKey ? "asc" : "desc" }); render(); },
+    onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } } });
+}
+
+function ranked(players) {
+  let rank = 0, prev = null;
+  return players.map((p, i) => { if (p.count !== prev) { rank = i + 1; prev = p.count; } return { ...p, rank }; });
+}
+const setOf = (d) => Object.fromEntries(d.tracks.map(t => [t.name, t]));
+
+function renderStats() {
+  const beaten = cur.tracks.filter(t => t.beaten_by > 0).length;
+  const replays = cur.tracks.reduce((a, t) => a + t.replays, 0);
+  const items = [[cur.tracks.length, "tracks"], [replays.toLocaleString(), "replays checked"],
+    [cur.players.length, "players beating ≥1 set time"], [`${beaten}/${cur.tracks.length}`, "tracks beaten by someone"]];
+  $("#stats").replaceChildren(...items.map(([b, s]) => el("div", { className: "stat" }, el("b", { textContent: b }), el("span", { textContent: s }))));
+}
+
+function renderPlayers(q) {
+  const total = cur.tracks.length, tmap = setOf(cur);
+  let rows = ranked(cur.players);
+  if (q) rows = rows.filter(p => p.name.toLowerCase().includes(q));
+  const tbody = el("tbody");
+  rows.slice(0, shown).forEach(p => {
+    const tr = el("tr", { className: "player" });
+    tr.append(el("td", { className: "rank" + (p.rank <= 3 ? " top" : ""), textContent: p.rank }),
+      el("td", { textContent: p.name }),
+      el("td", { className: "num", textContent: `${p.count}/${total}` }),
+      el("td", { className: "hide-sm" }, el("div", { className: "bar" }, Object.assign(el("i"), { style: `width:${100 * p.count / total}%` }))));
+    tr.onclick = () => { open.has(p.id) ? open.delete(p.id) : open.add(p.id); render(); };
+    tbody.append(tr);
+    if (open.has(p.id)) {
+      const chip = (name, v, miss, far) => {
+        const t = tmap[name];
+        return el("a", { className: "chip" + (miss ? " miss" : "") + (far != null ? ` tier${far}` : ""), href: link(t), target: "_blank", rel: "noopener" },
+          name, el("em", { textContent: `${fv(t, v)} (${miss ? missBy(t, v) : delta(t, v)})` }));
+      };
+      const sec = (title, entries, miss, far) => el("div", { className: "sec" },
+        el("h3", { textContent: `${title} (${entries.length})` }),
+        el("div", { className: "chips" }, ...entries.map(([n, v]) => chip(n, v, miss, far))));
+      const byName = (x, y) => x[0].localeCompare(y[0], undefined, { numeric: true });
+      // Split misses into tiers by how far short of the set value they are (relative to it).
+      const tiers = [[], [], []];
+      for (const [n, v] of Object.entries(p.miss || {})) {
+        const t = tmap[n], diff = t.mode === "score" ? t.set - v : v - t.set;
+        tiers[diff * 1000 <= t.set ? 0 : diff * 200 <= t.set ? 1 : 2].push([n, v]);
+      }
+      const titles = ["Missing by 0.1% or less", "Missing by 0.1% – 0.5%", "Missing by more than 0.5%"];
+      const cell = el("td", { colSpan: 4 }, sec("Beaten", Object.entries(p.times).sort(byName), false));
+      tiers.forEach((list, i) => { if (list.length) cell.append(sec(titles[i], list.sort(byName), true, i)); });
+      tbody.append(el("tr", { className: "detail" }, cell));
+    }
+  });
+  const table = el("table", {}, el("thead", {}, el("tr", {},
+    el("th", { textContent: "#" }), el("th", { textContent: "Player" }),
+    el("th", { className: "num", textContent: "Tracks beaten" }), el("th", { className: "hide-sm", textContent: "" }))), tbody);
+  const out = [rows.length ? table : el("div", { className: "empty", textContent: "No matching players." })];
+  if (rows.length > shown) out.push(el("button", { className: "more", textContent: `Show more (${rows.length - shown} left)`,
+    onclick: () => { shown += 200; render(); } }));
+  return out;
+}
+
+function renderTracks(q) {
+  let rows = cur.tracks.filter(t => !q || t.name.toLowerCase().includes(q));
+  if (sort.key) {
+    const sgn = sort.dir === "asc" ? 1 : -1;
+    rows = rows.map((t, i) => [t, i]).sort(([a, i], [b, j]) =>
+      sgn * (sort.key === "name" ? a.name.localeCompare(b.name, undefined, { numeric: true })
+                                 : a[sort.key] - b[sort.key]) || i - j).map(([t]) => t);
+  }
+  const tbody = el("tbody");
+  rows.forEach(t => tbody.append(el("tr", {},
+    el("td", {}, el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: t.name })),
+    el("td", { className: "num", textContent: fv(t, t.set) }),
+    el("td", { className: "num", textContent: t.replays }),
+    el("td", { className: "num", textContent: t.beaten_by }))));
+  if (!rows.length) return [el("div", { className: "empty", textContent: "No matching tracks." })];
+  const th = (label, key, cls = "num") => sortTh(label, key, sort, cls, key === "name");
+  return [el("table", {}, el("thead", {}, el("tr", {},
+    th("Track", "name", ""), el("th", { className: "num", textContent: "Set time" }),
+    th("Replays", "replays"), th("Beat it", "beaten_by"))), tbody)];
+}
+
+function renderImprovements(q) {
+  const tmap = setOf(cur);
+  let rows = cur.players.flatMap(p => Object.entries(p.times).map(([name, v]) => {
+    const t = tmap[name], abs = t.mode === "score" ? v - t.set : t.set - v;
+    return { player: p.name, t, v, abs, pct: 100 * abs / t.set };
+  })).filter(r => r.abs > 0 && (!q || r.player.toLowerCase().includes(q) || r.t.name.toLowerCase().includes(q)));
+  const sgn = isort.dir === "asc" ? 1 : -1;
+  rows.sort((a, b) => sgn * (isort.key === "player" ? a.player.localeCompare(b.player)
+    : isort.key === "track" ? a.t.name.localeCompare(b.t.name, undefined, { numeric: true })
+    : a.pct - b.pct) || b.pct - a.pct);
+  if (!rows.length) return [el("div", { className: "empty", textContent: "No improvements found." })];
+  const tbody = el("tbody");
+  rows.slice(0, shown).forEach((r, i) => tbody.append(el("tr", {},
+    el("td", { className: "rank" + (i < 3 && isort.key === "pct" && isort.dir === "desc" ? " top" : ""), textContent: i + 1 }),
+    el("td", { textContent: r.player }),
+    el("td", {}, el("a", { href: link(r.t), target: "_blank", rel: "noopener", textContent: r.t.name })),
+    el("td", { className: "num hide-sm", textContent: fv(r.t, r.t.set) }),
+    el("td", { className: "num", textContent: fv(r.t, r.v) }),
+    el("td", { className: "num", textContent: r.t.mode === "score" ? `+${r.abs} pts` : `−${(r.abs / 1000).toFixed(2)}s` }),
+    el("td", { className: "num", textContent: r.pct.toFixed(2) + "%" }))));
+  const out = [el("table", {}, el("thead", {}, el("tr", {},
+    el("th", { textContent: "#" }), sortTh("Player", "player", isort, "", true), sortTh("Track", "track", isort, "", true),
+    el("th", { className: "num hide-sm", textContent: "Set" }), el("th", { className: "num", textContent: "Result" }),
+    el("th", { className: "num", textContent: "Improvement" }), sortTh("%", "pct", isort))), tbody)];
+  if (rows.length > shown) out.push(el("button", { className: "more", textContent: `Show more (${rows.length - shown} left)`,
+    onclick: () => { shown += 200; render(); } }));
+  return out;
+}
+
+function render() {
+  const q = $("#q").value.trim().toLowerCase();
+  renderStats();
+  $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements }[view](q)));
+}
+
+$("#datasets").replaceChildren(...datasets.map((d, i) => el("button", {
+  textContent: d.label, ariaPressed: String(i === 0),
+  onclick: (e) => { cur = d; shown = 100; open.clear();
+    document.querySelectorAll("#datasets button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
+    render(); } })));
+document.querySelectorAll("#views button").forEach(b => b.onclick = () => {
+  view = b.dataset.view; shown = 100;
+  document.querySelectorAll("#views button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  render(); });
+$("#q").oninput = () => { shown = 100; render(); };
+$("#theme").onclick = () => {
+  const r = document.documentElement, dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const now = r.dataset.theme || (dark ? "dark" : "light");
+  r.dataset.theme = now === "dark" ? "light" : "dark"; };
+render();
+</script>
+</body>
+</html>

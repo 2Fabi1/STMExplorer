@@ -1,0 +1,26 @@
+# Run output from count_beats.py (stderr progress logs / stdout rankings)
+err*.log
+out*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated files are kept in git on purpose (index.html is the published site and the
+# *.json files are its data). Uncomment to ignore them and regenerate them with
+# count_beats.py and build_site.py instead.
+# index.html
+# nadeo.json
+# star.json
+# extension.json
+# results*.csv
