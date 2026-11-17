@@ -24,3 +24,9 @@ desktop.ini
 # star.json
 # extension.json
 # results*.csv
+
+# Scratch files from background runs
+*.flag
+
+# Local tooling
+.claude/

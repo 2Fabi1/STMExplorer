@@ -32,6 +32,7 @@
   .seg { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
   .seg button { border: 0; background: transparent; color: var(--muted); padding: 6px 14px; border-radius: 7px;
                 cursor: pointer; font: inherit; }
+  [hidden] { display: none !important; }
   .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   input[type=search] { flex: 1; min-width: 180px; background: var(--card); border: 1px solid var(--line);
                        color: var(--text); border-radius: 10px; padding: 8px 12px; font: inherit; }
@@ -85,12 +86,13 @@
   <header>
     <div>
       <h1>STM Stats</h1>
-      <p class="sub">How many tracks each player has a replay faster than the set time &middot; data from tmuf.exchange &amp; tmnf.exchange</p>
+      <p class="sub" id="sub"></p>
     </div>
     <button class="theme" id="theme" title="Toggle theme">Theme</button>
   </header>
 
   <div class="controls">
+    <div class="seg" id="sources" role="group" aria-label="Data source" hidden></div>
     <div class="seg" id="datasets" role="group" aria-label="Dataset"></div>
     <div class="seg" id="views" role="group" aria-label="View">
       <button data-view="players" aria-pressed="true">Players</button>
@@ -102,9 +104,7 @@
 
   <div class="stats" id="stats"></div>
   <div class="card"><div class="scroll" id="out"></div></div>
-  <footer>A time faster than or equal to the set time (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.
-    The Extension and All views match players by name, because user ids differ between tmuf and tmnf.
-    Generated __GENERATED__.</footer>
+  <footer><span id="note"></span> Generated __GENERATED__.</footer>
 </div>
 
 <script>
@@ -119,21 +119,30 @@ const link = (t) => `https://${t.site || "tmuf"}.exchange/trackshow/${t.id}`;
 const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props);
   kids.forEach(k => n.append(k)); return n; };
 
-// Build the "All" dataset by merging players by name (user ids differ between tmuf and tmnf).
-function merge(sets) {
+// Build the "All" dataset by merging players: by name for exchange replays (user ids differ between
+// tmuf and tmnf), by game login for United Ladder.
+function merge(sets, source) {
   const tracks = sets.flatMap(d => d.tracks);
   const byId = new Map();
   for (const d of sets) for (const p of d.players) {
-    const k = p.name.toLowerCase();
-    const m = byId.get(k) || { id: k, name: p.name, times: {}, miss: {} };
+    const k = source === "ul" ? String(p.id).toLowerCase() : p.name.toLowerCase();   // ul: game login
+    const m = byId.get(k) || { id: k, name: p.name, nick: p.nick, times: {}, miss: {} };
     Object.assign(m.times, p.times); Object.assign(m.miss, p.miss || {}); byId.set(k, m);
   }
   const players = [...byId.values()].map(p => ({ ...p, count: Object.keys(p.times).length }))
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   return { label: "All", tracks, players };
 }
-const datasets = [...DATA, ...(DATA.length > 1 ? [merge(DATA)] : [])];
-let cur = datasets[0], view = "players", shown = 100, open = new Set();
+const SOURCES = [["tmx", "Exchange replays"], ["ul", "United Ladder"]].filter(([s]) => DATA.some(d => (d.source || "tmx") === s));
+let source = SOURCES[0][0], datasets = [], cur;
+function pickSource(s) {
+  source = s;
+  const sets = DATA.filter(d => (d.source || "tmx") === s);
+  datasets = [...sets, ...(sets.length > 1 ? [merge(sets, s)] : [])];
+  cur = datasets[0];
+}
+pickSource(source);
+let view = "players", shown = 100, open = new Set();
 const sort = { key: null, dir: "desc" };    // Tracks view sort state; key null = original order
 const isort = { key: "pct", dir: "desc" };  // Improvements view sort state
 const collapsed = new Set();                // titles of collapsed player-breakdown sections
@@ -157,7 +166,8 @@ const setOf = (d) => Object.fromEntries(d.tracks.map(t => [t.name, t]));
 function renderStats() {
   const beaten = cur.tracks.filter(t => t.beaten_by > 0).length;
   const replays = cur.tracks.reduce((a, t) => a + t.replays, 0);
-  const items = [[cur.tracks.length, "tracks"], [replays.toLocaleString(), "replays checked"],
+  const items = [[cur.tracks.length, "tracks"],
+    [replays.toLocaleString(), source === "ul" ? "records on the leaderboards" : "replays checked"],
     [cur.players.length, "players beating ≥1 set time"], [`${beaten}/${cur.tracks.length}`, "tracks beaten by someone"]];
   $("#stats").replaceChildren(...items.map(([b, s]) => el("div", { className: "stat" }, el("b", { textContent: b }), el("span", { textContent: s }))));
 }
@@ -165,12 +175,12 @@ function renderStats() {
 function renderPlayers(q) {
   const total = cur.tracks.length, tmap = setOf(cur);
   let rows = ranked(cur.players);
-  if (q) rows = rows.filter(p => p.name.toLowerCase().includes(q));
+  if (q) rows = rows.filter(p => p.name.toLowerCase().includes(q) || (p.nick || "").toLowerCase().includes(q));
   const tbody = el("tbody");
   rows.slice(0, shown).forEach(p => {
     const tr = el("tr", { className: "player" });
     tr.append(el("td", { className: "rank" + (p.rank <= 3 ? " top" : ""), textContent: p.rank }),
-      el("td", { textContent: p.name }),
+      el("td", { textContent: p.name, title: p.nick || "" }),
       el("td", { className: "num", textContent: `${p.count}/${total}` }),
       el("td", { className: "hide-sm" }, el("div", { className: "bar" }, Object.assign(el("i"), { style: `width:${100 * p.count / total}%` }))));
     tr.onclick = () => { open.has(p.id) ? open.delete(p.id) : open.add(p.id); render(); };
@@ -228,15 +238,15 @@ function renderTracks(q) {
   const th = (label, key, cls = "num") => sortTh(label, key, sort, cls, key === "name");
   return [el("table", {}, el("thead", {}, el("tr", {},
     th("Track", "name", ""), el("th", { className: "num", textContent: "Set time" }),
-    th("Replays", "replays"), th("Beat it", "beaten_by"))), tbody)];
+    th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"))), tbody)];
 }
 
 function renderImprovements(q) {
   const tmap = setOf(cur);
   let rows = cur.players.flatMap(p => Object.entries(p.times).map(([name, v]) => {
     const t = tmap[name], abs = t.mode === "score" ? v - t.set : t.set - v;
-    return { player: p.name, t, v, abs, pct: 100 * abs / t.set };
-  })).filter(r => r.abs > 0 && (!q || r.player.toLowerCase().includes(q) || r.t.name.toLowerCase().includes(q)));
+    return { player: p.name, nick: p.nick, t, v, abs, pct: 100 * abs / t.set };
+  })).filter(r => r.abs > 0 && (!q || r.player.toLowerCase().includes(q) || (r.nick || "").toLowerCase().includes(q) || r.t.name.toLowerCase().includes(q)));
   const sgn = isort.dir === "asc" ? 1 : -1;
   rows.sort((a, b) => sgn * (isort.key === "player" ? a.player.localeCompare(b.player)
     : isort.key === "track" ? a.t.name.localeCompare(b.t.name, undefined, { numeric: true })
@@ -260,17 +270,37 @@ function renderImprovements(q) {
   return out;
 }
 
+const NOTES = {
+  common: "A time faster than or equal to the set time (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.",
+  tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. The Extension and All views match players by name, because user ids differ between tmuf and tmnf.",
+  ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Only results up to 0.5% behind a set time were fetched, so there is no \"more than 0.5%\" tier.",
+};
+const SUBS = { tmx: "How many tracks each player has a replay faster than the set time · data from tmuf.exchange & tmnf.exchange",
+               ul: "How many tracks each player has an official record faster than the set time · data from UnitedLadder" };
+
 function render() {
   const q = $("#q").value.trim().toLowerCase();
+  $("#sub").textContent = SUBS[source];
+  $("#note").textContent = `${NOTES.common} ${NOTES[source]}`;
   renderStats();
   $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements }[view](q)));
 }
 
-$("#datasets").replaceChildren(...datasets.map((d, i) => el("button", {
-  textContent: d.label, ariaPressed: String(i === 0),
-  onclick: (e) => { cur = d; shown = 100; open.clear();
-    document.querySelectorAll("#datasets button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
-    render(); } })));
+function buildDatasetButtons() {
+  $("#datasets").replaceChildren(...datasets.map((d, i) => el("button", {
+    textContent: d.label, ariaPressed: String(d === cur),
+    onclick: (e) => { cur = d; shown = 100; open.clear();
+      document.querySelectorAll("#datasets button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
+      render(); } })));
+}
+function buildSourceButtons() {
+  $("#sources").hidden = SOURCES.length < 2;
+  $("#sources").replaceChildren(...SOURCES.map(([id, label]) => el("button", {
+    textContent: label, ariaPressed: String(id === source),
+    onclick: () => { pickSource(id); shown = 100; open.clear(); buildSourceButtons(); buildDatasetButtons(); render(); } })));
+}
+buildSourceButtons();
+buildDatasetButtons();
 document.querySelectorAll("#views button").forEach(b => b.onclick = () => {
   view = b.dataset.view; shown = 100;
   document.querySelectorAll("#views button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
