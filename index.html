@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Set Time Beaters</title>
+<title>STM Stats</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #16191d; --muted: #667085; --line: #e3e6ea;
@@ -59,7 +59,13 @@
   .chip { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px;
           font-size: 13px; font-variant-numeric: tabular-nums; text-decoration: none; color: var(--text); }
   .sec + .sec { margin-top: 12px; }
-  .sec h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .sec summary { cursor: pointer; user-select: none; list-style: none; margin: 0 0 6px; font-size: 12px;
+                 text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .sec summary::-webkit-details-marker { display: none; }
+  .sec summary::before { content: "▾"; display: inline-block; width: 1.2em; }
+  .sec:not([open]) summary { margin-bottom: 0; }
+  .sec:not([open]) summary::before { content: "▸"; }
+  .sec summary:hover { color: var(--accent); }
   .chip.miss em { color: var(--gold); }
   .chip.tier1 em { color: var(--red); }
   .chip.tier2 em { color: var(--muted); }
@@ -78,7 +84,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>Set Time Beaters</h1>
+      <h1>STM Stats</h1>
       <p class="sub">How many tracks each player has a replay faster than the set time &middot; data from tmuf.exchange &amp; tmnf.exchange</p>
     </div>
     <button class="theme" id="theme" title="Toggle theme">Theme</button>
@@ -98,7 +104,7 @@
   <div class="card"><div class="scroll" id="out"></div></div>
   <footer>A time faster than or equal to the set time (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.
     The Extension and All views match players by name, because user ids differ between tmuf and tmnf.
-    Generated 2026-11-17 23:52.</footer>
+    Generated 2026-11-18 00:04.</footer>
 </div>
 
 <script>
@@ -130,6 +136,7 @@ const datasets = [...DATA, ...(DATA.length > 1 ? [merge(DATA)] : [])];
 let cur = datasets[0], view = "players", shown = 100, open = new Set();
 const sort = { key: null, dir: "desc" };    // Tracks view sort state; key null = original order
 const isort = { key: "pct", dir: "desc" };  // Improvements view sort state
+const collapsed = new Set();                // titles of collapsed player-breakdown sections
 
 // Sortable <th>: clicking sorts by `key` (first click: text asc, numbers desc), again flips the direction.
 function sortTh(label, key, st, cls = "num", textKey = false) {
@@ -174,9 +181,13 @@ function renderPlayers(q) {
         return el("a", { className: "chip" + (miss ? " miss" : "") + (far != null ? ` tier${far}` : ""), href: link(t), target: "_blank", rel: "noopener" },
           name, el("em", { textContent: `${fv(t, v)} (${miss ? missBy(t, v) : delta(t, v)})` }));
       };
-      const sec = (title, entries, miss, far) => el("div", { className: "sec" },
-        el("h3", { textContent: `${title} (${entries.length})` }),
-        el("div", { className: "chips" }, ...entries.map(([n, v]) => chip(n, v, miss, far))));
+      const sec = (title, entries, miss, far) => {
+        const d = el("details", { className: "sec", open: !collapsed.has(title) },
+          el("summary", { textContent: `${title} (${entries.length})` }),
+          el("div", { className: "chips" }, ...entries.map(([n, v]) => chip(n, v, miss, far))));
+        d.ontoggle = () => { d.open ? collapsed.delete(title) : collapsed.add(title); };  // remembered across players
+        return d;
+      };
       const byName = (x, y) => x[0].localeCompare(y[0], undefined, { numeric: true });
       // Split misses into tiers by how far short of the set value they are (relative to it).
       const tiers = [[], [], []];
