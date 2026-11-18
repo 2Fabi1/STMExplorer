@@ -35,6 +35,8 @@ serve `data/index.html` any way you like.
   that beats the STM now but did not before is a **new STM**, stored in `data/events.json` with the
   detection time. (The time is when a refresh noticed it, not when the player achieved it.)
 * The **New STMs** tab lists the whole history, newest first.
+* The **Merge** tab takes your United Ladder login and your exchange name, combines your times from both, and shows
+  your progress towards every tag, which ones are closest, and the tracks you still need (with how far off you are).
 * The first refresh compares against the snapshots committed in this repo, so it can report anything
   achieved since they were made.
 * If a dataset fails to download it keeps its previous data and is retried (the server retries after
