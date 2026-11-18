@@ -22,7 +22,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
   header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
   h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
   .sub { color: var(--muted); margin: 0; font-size: 14px; }
@@ -179,11 +179,11 @@ function derive(all, label, pred) {
   return { label, tracks, players };
 }
 
-const DATASETS = [["U", "U-STM", "United STM: Nadeo + Star tracks"], ["N", "N-STM", "Nations STM"],
-                  ["P", "P-STM", "Puzzle STM"], ["S", "S-STM", "Stunt STM"], ["ALL", "All", "Everything combined"]];
+const DATASETS = [["U", "United", "United STM: Nadeo + Star tracks"], ["N", "Nations", "Nations STM"],
+                  ["P", "Puzzle", "Puzzle STM"], ["S", "Stunt", "Stunt STM"], ["ALL", "All", "Everything combined"]];
 const SOURCES = [["tmx", "Exchange replays"], ["ul", "United Ladder"]].filter(([s]) => DATA.some(d => (d.source || "tmx") === s));
 let source = SOURCES[0][0], all, ach = null, cur;
-let ds = "U", sub = { diff: null, env: null };      // selected dataset; U-STM filters (null = All)
+let ds = "U", sub = { diff: null, env: null };      // selected dataset; United filters (null = All)
 
 function pickDataset() {
   let pred = ds === "ALL" ? () => true : (t) => t.cat === ds, label = DATASETS.find(([k]) => k === ds)[1];
@@ -525,7 +525,7 @@ function buildDatasetButtons() {
     onclick: () => { ds = k; sub = { diff: null, env: null }; pickDataset(); shown = 100; open.clear();
       buildDatasetButtons(); buildSubButtons(); render(); } })));
 }
-function buildSubButtons() {   // U-STM filters: a difficulty row and an environment row, each with "All"
+function buildSubButtons() {   // United filters: difficulty and environment, side by side, each with "All"
   const box = $("#subtabs");
   box.hidden = !(ds === "U" && view !== "achievements");
   if (box.hidden) return;
