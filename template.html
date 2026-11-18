@@ -67,6 +67,11 @@
   .sec:not([open]) summary { margin-bottom: 0; }
   .sec:not([open]) summary::before { content: "▸"; }
   .sec summary:hover { color: var(--accent); }
+  .subbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .subbar .seg { background: var(--bg); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .heading { padding: 12px 12px 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+             color: var(--muted); font-weight: 600; border-top: 1px solid var(--line); }
   .chip.miss em { color: var(--gold); }
   .chip.tier1 em { color: var(--red); }
   .chip.tier2 em { color: var(--muted); }
@@ -98,17 +103,20 @@
       <button data-view="players" aria-pressed="true">Players</button>
       <button data-view="tracks" aria-pressed="false">Tracks</button>
       <button data-view="improvements" aria-pressed="false">Improvements</button>
+      <button data-view="news" aria-pressed="false">New STMs</button>
     </div>
     <input type="search" id="q" placeholder="Search player or track…" aria-label="Search">
   </div>
 
   <div class="stats" id="stats"></div>
   <div class="card"><div class="scroll" id="out"></div></div>
-  <footer><span id="note"></span> Generated __GENERATED__.</footer>
+  <footer><span id="note"></span> <span id="gen"></span></footer>
 </div>
 
 <script>
 const DATA = __DATA__;
+const EVENTS = __EVENTS__;   // new STMs detected by the daily update (see update.py)
+const META = __META__;       // update timestamps
 const $ = (s) => document.querySelector(s);
 const fmt = (ms) => { const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000;
   return m ? `${m}:${s.toFixed(2).padStart(5, "0")}` : s.toFixed(2); };
@@ -278,6 +286,77 @@ function renderImprovements(q) {
   return out;
 }
 
+// --- New STMs: leaderboard + feed built from the event log written by update.py
+const nw = { win: "7" };
+const WINS = [["latest", "Latest update"], ["7", "7 days"], ["30", "30 days"], ["all", "All time"]];
+
+function renderNew(q) {
+  const tmap = setOf(cur), ref = Date.parse(META.updated) || Date.now();
+  const inWin = (e) => nw.win === "all" || (nw.win === "latest" ? e.t === META.updated
+                                                                 : Date.parse(e.t) > ref - Number(nw.win) * 864e5);
+  const list = EVENTS.filter(e => e.source === source && tmap[e.track] && inWin(e) &&
+    (!q || e.player.toLowerCase().includes(q) || (e.nick || "").toLowerCase().includes(q) || e.track.toLowerCase().includes(q)));
+
+  const by = new Map();   // leaderboard: new STMs per player
+  for (const e of list) {
+    const k = e.player.toLowerCase(), g = by.get(k) || { id: "n:" + k, name: e.player, nick: e.nick, ev: [] };
+    g.ev.push(e); by.set(k, g);
+  }
+  const board = [...by.values()].sort((a, b) => b.ev.length - a.ev.length || a.name.localeCompare(b.name));
+
+  const bar = el("div", { className: "subbar" },
+    el("div", { className: "seg" }, ...WINS.map(([k, label]) => el("button", {
+      textContent: label, ariaPressed: String(nw.win === k), onclick: () => { nw.win = k; shown = 100; render(); } }))),
+    el("span", { className: "muted", textContent: `${list.length} new STM${list.length === 1 ? "" : "s"} by ${board.length} player${board.length === 1 ? "" : "s"}` }));
+  if (!list.length) {
+    const since = META.since ? new Date(META.since).toLocaleDateString() : "";
+    return [bar, el("div", { className: "empty", textContent: EVENTS.length
+      ? "No new STMs in this window."
+      : `No new STMs detected yet${since ? " (tracking since " + since + ")" : ""}. The data is refreshed every 24 hours; new STMs show up here after the next update.` })];
+  }
+
+  const evChip = (e) => {
+    const t = tmap[e.track];
+    return el("a", { className: "chip", href: link(t), target: "_blank", rel: "noopener", title: new Date(e.t).toLocaleString() },
+      e.track, el("em", { textContent: `${fv(t, e.value)} (${delta(t, e.value)})` }));
+  };
+  let rank = 0, prev = null;
+  const tbody = el("tbody");
+  board.forEach((g, i) => {
+    if (g.ev.length !== prev) { rank = i + 1; prev = g.ev.length; }
+    const tr = el("tr", { className: "player" },
+      el("td", { className: "rank" + (rank <= 3 ? " top" : ""), textContent: rank }),
+      el("td", { textContent: g.name, title: g.nick || "" }),
+      el("td", { className: "num", textContent: g.ev.length }));
+    tr.onclick = () => { open.has(g.id) ? open.delete(g.id) : open.add(g.id); render(); };
+    tbody.append(tr);
+    if (open.has(g.id)) tbody.append(el("tr", { className: "detail" }, el("td", { colSpan: 3 },
+      el("div", { className: "chips" }, ...g.ev.sort((a, b) => a.track.localeCompare(b.track, undefined, { numeric: true })).map(evChip)))));
+  });
+  const boardTable = el("table", {}, el("thead", {}, el("tr", {},
+    el("th", { textContent: "#" }), el("th", { textContent: "Player" }), el("th", { className: "num", textContent: "New STMs" }))), tbody);
+
+  const pct = (e) => { const t = tmap[e.track], abs = t.mode === "score" ? e.value - t.set : t.set - e.value; return abs / t.set; };
+  const feed = [...list].sort((a, b) => Date.parse(b.t) - Date.parse(a.t) || pct(b) - pct(a));
+  const fbody = el("tbody");
+  feed.slice(0, shown).forEach(e => {
+    const t = tmap[e.track];
+    fbody.append(el("tr", {},
+      el("td", { textContent: new Date(e.t).toLocaleDateString() }),
+      el("td", { textContent: e.player, title: e.nick || "" }),
+      el("td", {}, el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: e.track })),
+      el("td", { className: "num", textContent: fv(t, e.value) }),
+      el("td", { className: "num", textContent: delta(t, e.value) })));
+  });
+  const feedTable = el("table", {}, el("thead", {}, el("tr", {},
+    el("th", { textContent: "Detected" }), el("th", { textContent: "Player" }), el("th", { textContent: "Track" }),
+    el("th", { className: "num", textContent: "Result" }), el("th", { className: "num", textContent: "vs STM" }))), fbody);
+  const out = [bar, boardTable, el("div", { className: "heading", textContent: "Recent new STMs" }), feedTable];
+  if (feed.length > shown) out.push(el("button", { className: "more", textContent: `Show more (${feed.length - shown} left)`,
+    onclick: () => { shown += 200; render(); } }));
+  return out;
+}
+
 const NOTES = {
   common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.",
   tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. The Extension and All views match players by name, because user ids differ between tmuf and tmnf.",
@@ -290,8 +369,9 @@ function render() {
   const q = $("#q").value.trim().toLowerCase();
   $("#sub").textContent = SUBS[source];
   $("#note").textContent = `${NOTES.common} ${NOTES[source]}`;
+  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated __GENERATED__.";
   renderStats();
-  $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements }[view](q)));
+  $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements, news: renderNew }[view](q)));
 }
 
 function buildDatasetButtons() {

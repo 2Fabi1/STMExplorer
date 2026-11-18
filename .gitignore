@@ -30,3 +30,6 @@ desktop.ini
 
 # Local tooling
 .claude/
+
+# Server runtime state (snapshots, event log, logs, built site)
+data/

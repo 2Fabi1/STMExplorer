@@ -1,0 +1,105 @@
+name: Update STM data
+
+# Refreshes all STM data once a day, detects new STMs, and publishes the site to GitHub Pages.
+# One-time setup: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# State (snapshots + event log) lives on a single-commit "data" branch that is replaced every run,
+# so the history of main does not grow.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"      # every day at 03:17 UTC
+  workflow_dispatch:           # "Run workflow" button in the Actions tab
+
+concurrency:
+  group: stm-update
+  cancel-in-progress: false    # never kill a refresh half way; a second run waits
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300       # a full refresh takes about an hour
+    permissions:
+      contents: write          # to update the "data" branch
+    outputs:
+      incomplete: ${{ steps.result.outputs.incomplete }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore state from the data branch
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin data >/dev/null 2>&1; then
+            git fetch --depth=1 origin data
+            git archive FETCH_HEAD | tar -x -C data
+            echo "Restored: $(ls data | tr '\n' ' ')"
+          else
+            echo "No data branch yet - the first run seeds from the committed snapshots."
+          fi
+
+      - name: Refresh data
+        id: update
+        continue-on-error: true      # a partial refresh is still saved and published; reported below
+        run: python update.py
+
+      - name: Record whether the refresh was complete
+        id: result
+        run: echo "incomplete=${{ steps.update.outcome == 'failure' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Save state to the data branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state="$RUNNER_TEMP/state"
+          rm -rf "$state" && mkdir "$state"
+          cp data/*.json "$state"/
+          cd "$state"
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "STM data $(date -u +%F)"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+
+      - name: Prepare site
+        run: |
+          mkdir _site
+          cp data/index.html data/events.json _site/
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - name: Keep the logs of the refresh
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: refresh-logs
+          path: data/logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  deploy:
+    needs: refresh
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+      - name: Flag an incomplete refresh
+        if: needs.refresh.outputs.incomplete == 'true'
+        run: |
+          echo "::error::Some datasets failed to download and kept their previous data (see the refresh job logs). The site was still published; the next run retries."
+          exit 1

@@ -169,6 +169,8 @@ def main():
                     help="tmx = replays on tmuf/tmnf.exchange (default); ul = UnitedLadder official leaderboards")
     ap.add_argument("--ul-miss-pct", type=float, default=0.5, metavar="PCT",
                     help="ul only: fetch records up to PCT percent behind the set value (default 0.5)")
+    ap.add_argument("--fail-on-error", action="store_true",
+                    help="exit non-zero (writing nothing) if any track could not be fetched")
     ap.add_argument("--csv", help="write the ranking to this CSV file")
     ap.add_argument("--json", help="write full results (tracks + players) to this JSON file")
     ap.add_argument("--label", default="", help="dataset label stored in the JSON")
@@ -189,6 +191,7 @@ def main():
     names = {}                  # player key -> display name (ul: the game login)
     nicks = {}                  # ul only: player key -> nickname (formatting stripped)
     track_info = []
+    failures = []               # tracks whose leaderboard could not be fetched
     session = requests.Session()
 
     for i, t in enumerate(tracks, 1):
@@ -196,8 +199,11 @@ def main():
         if ul:
             try:
                 recs, total, pages = fetch_records_ul(session, t, args.ul_miss_pct, args.delay)
+                if total == 0:   # the API answers 200 with an empty list for an unknown map uid
+                    raise requests.RequestException("leaderboard is empty (unknown map uid?)")
             except requests.RequestException as e:
                 print(f"  WARNING: {t['name']} ({t['uid']}) failed: {e}", file=sys.stderr)
+                failures.append(t["name"])
                 recs, total, pages = [], 0, 0
         else:
             replays = fetch_replays(session, t)
@@ -239,6 +245,8 @@ def main():
               file=sys.stderr)
         time.sleep(args.delay)
 
+    if args.fail_on_error and failures:
+        sys.exit(f"{len(failures)} track(s) failed, nothing written: {', '.join(failures)}")
     for key in list(miss):   # a miss only matters if the player never beat that track
         for name in [n for n in miss[key] if n in times.get(key, {})]:
             del miss[key][name]
