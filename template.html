@@ -72,6 +72,17 @@
   .muted { color: var(--muted); font-size: 13px; }
   .heading { padding: 12px 12px 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
              color: var(--muted); font-weight: 600; border-top: 1px solid var(--line); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px;
+         border: 1px solid #8b95a3; vertical-align: -1px; }
+  .achv td, .achv th { white-space: nowrap; padding: 9px 7px; }
+  .achv td:first-child, .achv th:first-child { padding-left: 12px; }
+  .achv td:nth-child(2), .achv th:nth-child(2) { position: sticky; left: 0; background: var(--card); z-index: 1; }
+  .achv tr.subhead th { top: 33px; text-transform: none; letter-spacing: 0; color: var(--good); font-weight: 500; }
+  .prog { min-width: 74px; }
+  .prog .bar { height: 4px; margin-top: 4px; min-width: 0; }
+  .prog.zero { color: var(--muted); }
+  .prog.full { color: var(--good); font-weight: 600; }
+  .prog.full .bar i { background: var(--good); }
   .chip.miss em { color: var(--gold); }
   .chip.tier1 em { color: var(--red); }
   .chip.tier2 em { color: var(--muted); }
@@ -104,9 +115,12 @@
       <button data-view="tracks" aria-pressed="false">Tracks</button>
       <button data-view="improvements" aria-pressed="false">Improvements</button>
       <button data-view="news" aria-pressed="false">New STMs</button>
+      <button data-view="achievements" aria-pressed="false">Achievements</button>
     </div>
     <input type="search" id="q" placeholder="Search player or track…" aria-label="Search">
   </div>
+
+  <div class="controls" id="subtabs" hidden></div>
 
   <div class="stats" id="stats"></div>
   <div class="card"><div class="scroll" id="out"></div></div>
@@ -127,10 +141,24 @@ const link = (t) => `https://${t.site || "tmuf"}.exchange/trackshow/${t.id}`;
 const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props);
   kids.forEach(k => n.append(k)); return n; };
 
-// Build the "All" dataset by merging players: by name for exchange replays (user ids differ between
-// tmuf and tmnf), by game login for United Ladder.
+// ---- Track classification: the track name encodes category, environment and difficulty.
+const ENVS = ["Stadium", "Island", "Desert", "Rally", "Bay", "Coast", "Snow"];
+const DIFFS = [["A", "White", "#f3f4f6"], ["B", "Green", "#22c55e"], ["C", "Blue", "#3b82f6"], ["D", "Red", "#ef4444"], ["E", "Black", "#111827"]];
+const DIFF_NAME = Object.fromEntries(DIFFS.map(([c, n]) => [c, n]));
+const U_RE = /^(Star)?(Stadium|Island|Desert|Rally|Bay|Coast|Snow)([A-E])\d?$/;
+function classify(name) {
+  const m = U_RE.exec(name);
+  if (m) return { cat: "U", env: m[2], diff: m[3] };      // United: Nadeo tracks + Star tracks
+  if (/^[A-E]\d\d-/.test(name)) return { cat: "N" };       // Nations (TMNF campaign)
+  if (/^Puzzle/.test(name)) return { cat: "P" };
+  if (/^Stunt/.test(name)) return { cat: "S" };
+  return {};
+}
+
+// Merge every data file of a source into one dataset; players are merged by name for exchange replays
+// (user ids differ between tmuf and tmnf) and by game login for United Ladder.
 function merge(sets, source) {
-  const tracks = sets.flatMap(d => d.tracks);
+  const tracks = sets.flatMap(d => d.tracks).map(t => ({ ...t, ...classify(t.name) }));
   const byId = new Map();
   for (const d of sets) for (const p of d.players) {
     const k = source === "ul" ? String(p.id).toLowerCase() : p.name.toLowerCase();   // ul: game login
@@ -141,13 +169,37 @@ function merge(sets, source) {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   return { label: "All", tracks, players };
 }
+
+// The same data restricted to the tracks matching `pred`; players are re-counted on that subset.
+function derive(all, label, pred) {
+  const tracks = all.tracks.filter(pred), names = new Set(tracks.map(t => t.name));
+  const pick = (o) => Object.fromEntries(Object.entries(o || {}).filter(([n]) => names.has(n)));
+  const players = all.players.map(p => { const times = pick(p.times); return { ...p, times, miss: pick(p.miss), count: Object.keys(times).length }; })
+    .filter(p => p.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  return { label, tracks, players };
+}
+
+const DATASETS = [["U", "U-STM", "United STM: Nadeo + Star tracks"], ["N", "N-STM", "Nations STM"],
+                  ["P", "P-STM", "Puzzle STM"], ["S", "S-STM", "Stunt STM"], ["ALL", "All", "Everything combined"]];
 const SOURCES = [["tmx", "Exchange replays"], ["ul", "United Ladder"]].filter(([s]) => DATA.some(d => (d.source || "tmx") === s));
-let source = SOURCES[0][0], datasets = [], cur;
+let source = SOURCES[0][0], all, ach = null, cur;
+let ds = "U", sub = { diff: null, env: null };      // selected dataset; U-STM filters (null = All)
+
+function pickDataset() {
+  let pred = ds === "ALL" ? () => true : (t) => t.cat === ds, label = DATASETS.find(([k]) => k === ds)[1];
+  if (ds === "U") {   // difficulty and environment are independent filters; null = All
+    const { diff, env } = sub;
+    pred = (t) => t.cat === "U" && (!diff || t.diff === diff) && (!env || t.env === env);
+    if (diff) label += " · " + DIFF_NAME[diff];
+    if (env) label += " · " + env;
+  }
+  cur = derive(all, label, pred);
+}
 function pickSource(s) {
   source = s;
-  const sets = DATA.filter(d => (d.source || "tmx") === s);
-  datasets = [...sets, ...(sets.length > 1 ? [merge(sets, s)] : [])];
-  cur = datasets[0];
+  all = merge(DATA.filter(d => (d.source || "tmx") === s), s);
+  ach = null;            // achievements are recomputed lazily for the new source
+  pickDataset();
 }
 pickSource(source);
 let view = "players", shown = 100, open = new Set();
@@ -357,9 +409,98 @@ function renderNew(q) {
   return out;
 }
 
+// --- Achievements: progress towards the tags
+const TAGS_PRIMARY = [
+  { id: "U", name: "United STM", pred: t => t.cat === "U" },
+  { id: "N", name: "Nations STM", pred: t => t.cat === "N" },
+  { id: "P", name: "Puzzle STM", pred: t => t.cat === "P" },
+  { id: "S", name: "Stunt STM", pred: t => t.cat === "S" },
+];
+const TAGS_DIFF = DIFFS.map(([c, name, dot]) => ({ id: "d" + c, name, dot, pred: t => t.cat === "U" && t.diff === c }));
+const TAGS_ENV = ENVS.map(env => ({ id: "e" + env, name: env, pred: t => t.cat === "U" && t.env === env }));
+const TAGS_UNITED = [...TAGS_DIFF, ...TAGS_ENV];
+const am = { mode: "primary", group: "diff" };        // primary tags, or United sub-tags by difficulty / environment
+const asort = { key: "default", dir: "desc" };        // "default" = most tags done, then closest overall
+
+function achievementData() {
+  if (ach) return ach;
+  const tags = [...TAGS_PRIMARY, ...TAGS_UNITED].map(tg => {
+    const names = new Set(all.tracks.filter(tg.pred).map(t => t.name));
+    return { ...tg, names, total: names.size };
+  });
+  const players = all.players.map(p => {
+    const n = {};
+    for (const tg of tags) { let c = 0; for (const name in p.times) if (tg.names.has(name)) c++; n[tg.id] = c; }
+    return { id: p.id, name: p.name, nick: p.nick, n };
+  });
+  return (ach = { tags, players });
+}
+
+function renderAchievements(q) {
+  const A = achievementData();
+  const group = am.mode === "primary" ? TAGS_PRIMARY : am.group === "diff" ? TAGS_DIFF : TAGS_ENV;
+  const tags = group.map(g => A.tags.find(t => t.id === g.id)).filter(t => t.total > 0);
+  const isDone = (p, t) => p.n[t.id] === t.total;
+  const done = (p) => tags.filter(t => isDone(p, t)).length;
+  const frac = (p) => tags.reduce((sum, t) => sum + p.n[t.id] / t.total, 0);
+  const byDefault = (a, b) => done(b) - done(a) || frac(b) - frac(a) || a.name.localeCompare(b.name);   // best first
+  const complete = Object.fromEntries(tags.map(t => [t.id, A.players.filter(p => isDone(p, t)).length]));
+
+  let rows = A.players.filter(p => tags.some(t => p.n[t.id] > 0) &&
+    (!q || p.name.toLowerCase().includes(q) || (p.nick || "").toLowerCase().includes(q)));
+  const useKey = asort.key !== "default" && tags.some(t => t.id === asort.key);
+  rows.sort((a, b) => {
+    const cmp = useKey ? (b.n[asort.key] - a.n[asort.key]) || byDefault(a, b) : byDefault(a, b);
+    return asort.dir === "desc" ? cmp : -cmp;
+  });
+
+  const segment = (key, options) => el("div", { className: "seg" }, ...options.map(([k, label]) => el("button", {
+    textContent: label, ariaPressed: String(am[key] === k), onclick: () => { am[key] = k; shown = 100; render(); } })));
+  const bar = el("div", { className: "subbar" },
+    segment("mode", [["primary", "Primary tags (Nadeo)"], ["united", "United sub-tags (bronze)"]]),
+    ...(am.mode === "united" ? [segment("group", [["diff", "Difficulty"], ["env", "Environment"]])] : []),
+    el("span", { className: "muted", textContent: "Beat the STM on every track of a tag to earn it · click a column to sort" }));
+  if (!rows.length) return [bar, el("div", { className: "empty", textContent: "No matching players." })];
+
+  const th = (t) => {
+    const on = asort.key === t.id;
+    return el("th", { className: "num sortable", tabIndex: 0, title: `${t.total} tracks`,
+      ariaSort: on ? (asort.dir === "asc" ? "ascending" : "descending") : "none",
+      onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: t.id, dir: "desc" }); render(); },
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } } },
+      ...(t.dot ? [el("i", { className: "dot", style: `background:${t.dot}` })] : []),
+      t.name + (on ? (asort.dir === "asc" ? " ▲" : " ▼") : ""));
+  };
+  const doneTh = (() => {   // "Tags" = how many tags the player has completed; also restores the default order
+    const on = asort.key === "default";
+    return el("th", { className: "num sortable", tabIndex: 0, textContent: "Tags" + (on ? (asort.dir === "asc" ? " ▲" : " ▼") : ""),
+      onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: "default", dir: "desc" }); render(); } });
+  })();
+  const head = el("thead", {},
+    el("tr", {}, el("th", { textContent: "#" }), el("th", { textContent: "Player" }), ...tags.map(th), doneTh),
+    el("tr", { className: "subhead" }, el("th"), el("th", { textContent: "Completed by" }),
+      ...tags.map(t => el("th", { className: "num", textContent: `${complete[t.id]} ✓` })), el("th")));
+
+  const tbody = el("tbody");
+  rows.slice(0, shown).forEach((p, i) => tbody.append(el("tr", {},
+    el("td", { className: "rank" + (i < 3 && asort.key === "default" && asort.dir === "desc" ? " top" : ""), textContent: i + 1 }),
+    el("td", { textContent: p.name, title: p.nick || "" }),
+    ...tags.map(t => {
+      const n = p.n[t.id], full = n === t.total;
+      return el("td", { className: "num prog" + (full ? " full" : n === 0 ? " zero" : "") },
+        `${full ? "✓ " : ""}${n}/${t.total}`,
+        el("div", { className: "bar" }, Object.assign(el("i"), { style: `width:${100 * n / t.total}%` })));
+    }),
+    el("td", { className: "num", textContent: `${done(p)}/${tags.length}` }))));
+  const out = [bar, el("table", { className: "achv" }, head, tbody)];
+  if (rows.length > shown) out.push(el("button", { className: "more", textContent: `Show more (${rows.length - shown} left)`,
+    onclick: () => { shown += 200; render(); } }));
+  return out;
+}
+
 const NOTES = {
   common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.",
-  tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. The Extension and All views match players by name, because user ids differ between tmuf and tmnf.",
+  tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. Players are matched by name, because user ids differ between tmuf and tmnf.",
   ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Only results up to 0.5% behind an STM were fetched, so there is no \"more than 0.5%\" tier.",
 };
 const SUBS = { tmx: "How many tracks each player has a replay faster than the STM · data from tmuf.exchange & tmnf.exchange",
@@ -370,29 +511,46 @@ function render() {
   $("#sub").textContent = SUBS[source];
   $("#note").textContent = `${NOTES.common} ${NOTES[source]}`;
   $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated __GENERATED__.";
-  renderStats();
-  $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements, news: renderNew }[view](q)));
+  $("#stats").hidden = view === "achievements";
+  if (view !== "achievements") renderStats();
+  $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements,
+                                  news: renderNew, achievements: renderAchievements }[view](q)));
 }
 
 function buildDatasetButtons() {
-  $("#datasets").replaceChildren(...datasets.map((d, i) => el("button", {
-    textContent: d.label, ariaPressed: String(d === cur),
-    onclick: (e) => { cur = d; shown = 100; open.clear();
-      document.querySelectorAll("#datasets button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
-      render(); } })));
+  $("#datasets").hidden = view === "achievements";      // achievements span every dataset
+  $("#datasets").replaceChildren(...DATASETS.map(([k, label, tip]) => el("button", {
+    textContent: label, title: tip, ariaPressed: String(k === ds),
+    onclick: () => { ds = k; sub = { diff: null, env: null }; pickDataset(); shown = 100; open.clear();
+      buildDatasetButtons(); buildSubButtons(); render(); } })));
+}
+function buildSubButtons() {   // U-STM filters: a difficulty row and an environment row, each with "All"
+  const box = $("#subtabs");
+  box.hidden = !(ds === "U" && view !== "achievements");
+  if (box.hidden) return;
+  const choose = (key, value) => { sub = { ...sub, [key]: value }; pickDataset(); shown = 100; open.clear(); buildSubButtons(); render(); };
+  const mk = (label, key, value, dot) => el("button", {
+    ariaPressed: String(sub[key] === value), onclick: () => choose(key, value) },
+    ...(dot ? [el("i", { className: "dot", style: `background:${dot}` })] : []), label);
+  box.replaceChildren(
+    el("div", { className: "seg", role: "group", ariaLabel: "Difficulty" },
+      mk("All", "diff", null), ...DIFFS.map(([c, n, dot]) => mk(n, "diff", c, dot))),
+    el("div", { className: "seg", role: "group", ariaLabel: "Environment" },
+      mk("All", "env", null), ...ENVS.map(e => mk(e, "env", e))));
 }
 function buildSourceButtons() {
   $("#sources").hidden = SOURCES.length < 2;
   $("#sources").replaceChildren(...SOURCES.map(([id, label]) => el("button", {
     textContent: label, ariaPressed: String(id === source),
-    onclick: () => { pickSource(id); shown = 100; open.clear(); buildSourceButtons(); buildDatasetButtons(); render(); } })));
+    onclick: () => { pickSource(id); shown = 100; open.clear(); buildSourceButtons(); buildDatasetButtons(); buildSubButtons(); render(); } })));
 }
 buildSourceButtons();
 buildDatasetButtons();
+buildSubButtons();
 document.querySelectorAll("#views button").forEach(b => b.onclick = () => {
   view = b.dataset.view; shown = 100;
   document.querySelectorAll("#views button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-  render(); });
+  buildDatasetButtons(); buildSubButtons(); render(); });
 $("#q").oninput = () => { shown = 100; render(); };
 $("#theme").onclick = () => {
   const r = document.documentElement, dark = matchMedia("(prefers-color-scheme: dark)").matches;
