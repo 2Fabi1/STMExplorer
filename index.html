@@ -77,7 +77,6 @@
   .achv td, .achv th { white-space: nowrap; padding: 9px 7px; }
   .achv td:first-child, .achv th:first-child { padding-left: 12px; }
   .achv td:nth-child(2), .achv th:nth-child(2) { position: sticky; left: 0; background: var(--card); z-index: 1; }
-  .achv tr.subhead th { top: 33px; text-transform: none; letter-spacing: 0; color: var(--good); font-weight: 500; }
   .prog { min-width: 74px; }
   .prog .bar { height: 4px; margin-top: 4px; min-width: 0; }
   .prog.zero { color: var(--muted); }
@@ -444,7 +443,6 @@ function renderAchievements(q) {
   const done = (p) => tags.filter(t => isDone(p, t)).length;
   const frac = (p) => tags.reduce((sum, t) => sum + p.n[t.id] / t.total, 0);
   const byDefault = (a, b) => done(b) - done(a) || frac(b) - frac(a) || a.name.localeCompare(b.name);   // best first
-  const complete = Object.fromEntries(tags.map(t => [t.id, A.players.filter(p => isDone(p, t)).length]));
 
   let rows = A.players.filter(p => tags.some(t => p.n[t.id] > 0) &&
     (!q || p.name.toLowerCase().includes(q) || (p.nick || "").toLowerCase().includes(q)));
@@ -477,9 +475,7 @@ function renderAchievements(q) {
       onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: "default", dir: "desc" }); render(); } });
   })();
   const head = el("thead", {},
-    el("tr", {}, el("th", { textContent: "#" }), el("th", { textContent: "Player" }), ...tags.map(th), doneTh),
-    el("tr", { className: "subhead" }, el("th"), el("th", { textContent: "Completed by" }),
-      ...tags.map(t => el("th", { className: "num", textContent: `${complete[t.id]} ✓` })), el("th")));
+    el("tr", {}, el("th", { textContent: "#" }), el("th", { textContent: "Player" }), ...tags.map(th), doneTh));
 
   const tbody = el("tbody");
   rows.slice(0, shown).forEach((p, i) => tbody.append(el("tr", {},
@@ -510,7 +506,7 @@ function render() {
   const q = $("#q").value.trim().toLowerCase();
   $("#sub").textContent = SUBS[source];
   $("#note").textContent = `${NOTES.common} ${NOTES[source]}`;
-  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-18 14:57.";
+  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-18 14:59.";
   $("#stats").hidden = view === "achievements";
   if (view !== "achievements") renderStats();
   $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements,
