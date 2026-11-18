@@ -2,7 +2,7 @@
 
 How many tracks each player has beaten the STM (set time) on, for TMUF and TMNF — from two sources:
 replays uploaded to tmuf.exchange / tmnf.exchange, and the official in-game leaderboards via the
-UnitedLadder API. The site also shows **who earned new STMs** (a leaderboard plus a feed), detected by
+UnitedLadder API. The site also shows **who earned new STMs** (a feed of recent ones), detected by
 comparing each daily refresh with the previous one.
 
 ## Run the server
@@ -34,7 +34,7 @@ serve `data/index.html` any way you like.
 * Each refresh downloads every dataset and compares it with the previous snapshot. A player/track pair
   that beats the STM now but did not before is a **new STM**, stored in `data/events.json` with the
   detection time. (The time is when a refresh noticed it, not when the player achieved it.)
-* The **New STMs** tab ranks players by how many they earned in the latest update / 7 / 30 days / all time.
+* The **New STMs** tab lists the whole history, newest first.
 * The first refresh compares against the snapshots committed in this repo, so it can report anything
   achieved since they were made.
 * If a dataset fails to download it keeps its previous data and is retried (the server retries after
