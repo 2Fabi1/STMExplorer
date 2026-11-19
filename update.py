@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import build_site
+import count_beats
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -48,7 +49,13 @@ JOBS = [
                                                          ("tracks_ext_stunt.txt", ":tmuf:score")]},
 ]
 SOURCES = {"tmx": "", "ul": "_ul"}      # source -> json file suffix
-MAX_PARALLEL = 3                        # concurrent count_beats.py processes
+MAX_PARALLEL = 1                        # one scraper at a time: steady and gentle on the hosts
+REQUEST_DELAY = {"ul": 1.0, "tmx": 0.6}  # seconds waited after every request, per source
+# UnitedLadder: every day each track is read down to the STM (about 1 page). Medal results (Super Bronze depth)
+# need many more pages on busy tracks, so they are read gradually: each run reads the tracks with the oldest
+# medal data until about this many extra pages are used, and keeps the earlier results for the rest.
+DEEP_BUDGET_PAGES = 1000
+DEFAULT_DEEP_PAGES = 25                 # page estimate for a track that has not been read deep yet
 LOG_KEEP_DAYS = 14
 
 log = logging.getLogger("stm")
@@ -147,14 +154,17 @@ def event_key(e: dict) -> tuple:
 
 # ---------------------------------------------------------------- running the scrapers
 
-def run_job(job: dict, source: str) -> tuple[bool, Path]:
+def run_job(job: dict, source: str, deep_names: list[str] | None = None) -> tuple[bool, Path]:
     """Run count_beats.py for one dataset/source into TMP. Returns (ok, output path)."""
     out = TMP / json_name(job["id"], source)
     out.unlink(missing_ok=True)
     specs = [str(ROOT / f) + opts for f, opts in job["tracks"]]
     cmd = [sys.executable, str(ROOT / "count_beats.py"), "--source", source, "--tracks", *specs,
-           "--json", str(out), "--label", job["label"], "--fail-on-error",
-           "--delay", "0.3" if source == "ul" else "0.2"]
+           "--json", str(out), "--label", job["label"], "--fail-on-error", "--delay", str(REQUEST_DELAY[source])]
+    if source == "ul":
+        cmd += ["--depth", "stm"]
+        if deep_names:
+            cmd += ["--deep-tracks", *deep_names]
     logfile = LOGS / f"{datetime.now():%Y%m%d-%H%M}-{job['id']}{SOURCES[source]}.log"
     started = time.time()
     with open(logfile, "wb") as lf:
@@ -183,8 +193,59 @@ def prune_logs() -> None:
             f.unlink(missing_ok=True)
 
 
-def run_update(only=None, sources=None) -> dict | None:
-    """One full refresh. Returns a summary dict, or None if another update is already running."""
+def carry_medals(old: dict, new: dict) -> None:
+    """Keep what a light United Ladder read cannot see.
+
+    For tracks that were not read down to Super Bronze this run, keep their earlier medal timestamp and each
+    player's earlier medal-level results (dropped where the player has meanwhile beaten the STM). Tracks that
+    were read deep carry their fresh results already.
+    """
+    old_tracks = {t["name"]: t for t in old["tracks"]}
+    carried = {t["name"] for t in new["tracks"] if not t.get("medals_at") and old_tracks.get(t["name"], {}).get("medals_at")}
+    for t in new["tracks"]:
+        if t["name"] in carried:
+            t["medals_at"] = old_tracks[t["name"]]["medals_at"]
+            t["deep_pages"] = old_tracks[t["name"]].get("deep_pages")
+    old_miss = {p["id"]: p.get("miss", {}) for p in old["players"]}
+    for p in new["players"]:
+        keep = {n: v for n, v in old_miss.get(p["id"], {}).items() if n in carried and n not in p["times"]}
+        p["miss"] = {**keep, **p["miss"]}
+
+
+def plan_deep_reads(jobs: list[dict], full: bool | None, budget: int) -> dict[str, list[str]]:
+    """United Ladder tracks to read down to Super Bronze this run, per dataset id.
+
+    Oldest (or never read) medal data first, until about `budget` pages are used; `full` forces all (True) or none (False).
+    """
+    cands = []   # (medals_at or "", order, job id, track, estimated pages)
+    for job in jobs:
+        old = read_json(DATA / json_name(job["id"], "ul"), None) or {"tracks": []}
+        known = {t["name"]: t for t in old["tracks"]}
+        for f, opts in job["tracks"]:
+            for t in count_beats.load_tracks(str(ROOT / f) + opts):
+                k = known.get(t["name"], {})
+                cands.append((k.get("medals_at") or "", len(cands), job["id"], t["name"], k.get("deep_pages") or DEFAULT_DEEP_PAGES))
+    if full is True:
+        chosen = cands
+    elif full is False:
+        chosen = []
+    else:
+        chosen, spent = [], 0
+        for c in sorted(cands):
+            if chosen and spent + c[4] > budget:
+                break
+            chosen.append(c)
+            spent += c[4]
+    plan: dict[str, list[str]] = {}
+    for _, _, job_id, name, _ in chosen:
+        plan.setdefault(job_id, []).append(name)
+    return plan
+
+
+def run_update(only=None, sources=None, full=None, budget=DEEP_BUDGET_PAGES) -> dict | None:
+    """One refresh. `full` forces (True) or forbids (False) deep United Ladder reads; None = the daily page budget.
+
+    Returns a summary dict, or None if another update is already running."""
     if not _lock.acquire(blocking=False):
         log.warning("An update is already running; skipping")
         return None
@@ -193,11 +254,13 @@ def run_update(only=None, sources=None) -> dict | None:
         TMP.mkdir(exist_ok=True)
         prune_logs()
         jobs = [(j, s) for s in (sources or SOURCES) for j in JOBS if not only or j["id"] in only]
-        log.info("Update started: %s", ", ".join(f"{j['id']}/{s}" for j, s in jobs))
+        plan = plan_deep_reads([j for j, s in jobs if s == "ul"], full, budget)
+        log.info("Update started: %s | medal depth for %d United Ladder track(s) this run",
+                 ", ".join(f"{j['id']}/{s}" for j, s in jobs), sum(len(v) for v in plan.values()))
         started = now_iso()
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
-            # long United Ladder jobs first so they overlap with the quick exchange ones
-            results = list(pool.map(lambda js: (js, *run_job(*js)), sorted(jobs, key=lambda js: js[1] != "ul")))
+            results = list(pool.map(lambda js: (js, *run_job(js[0], js[1], plan.get(js[0]["id"]))),
+                                    sorted(jobs, key=lambda js: js[1] != "ul")))
 
         ts = now_iso()
         events = read_json(DATA / "events.json", [])
@@ -210,6 +273,9 @@ def run_update(only=None, sources=None) -> dict | None:
                 continue
             new = json.loads(tmp_path.read_text(encoding="utf-8"))
             old = read_json(DATA / name, None)
+            if source == "ul" and old is not None:
+                carry_medals(old, new)
+                write_json(tmp_path, new)
             if old is not None:
                 for e in diff_events(old, new, source, job["label"], ts):
                     if event_key(e) not in seen:
@@ -241,9 +307,14 @@ def main():
     ap = argparse.ArgumentParser(description="Refresh STM data and detect new STMs.")
     ap.add_argument("--only", nargs="+", choices=[j["id"] for j in JOBS], help="only these datasets")
     ap.add_argument("--source", nargs="+", choices=list(SOURCES), help="only these sources")
+    depth = ap.add_mutually_exclusive_group()
+    depth.add_argument("--full", action="store_true", help="read every United Ladder track down to Super Bronze now (many requests)")
+    depth.add_argument("--light", action="store_true", help="read United Ladder only down to the STM (no medal reads this run)")
+    ap.add_argument("--deep-budget", type=int, default=DEEP_BUDGET_PAGES, metavar="PAGES",
+                    help=f"extra United Ladder pages to spend on medal data per run (default {DEEP_BUDGET_PAGES})")
     args = ap.parse_args()
     try:
-        summary = run_update(args.only, args.source)
+        summary = run_update(args.only, args.source, True if args.full else False if args.light else None, args.deep_budget)
     except KeyboardInterrupt:
         stop_children()
         raise

@@ -13,8 +13,8 @@ python server.py                      # http://127.0.0.1:8080
 ```
 
 On start it serves the last snapshot straight away and refreshes the data in the background whenever
-it is more than 24 hours old, then every 24 hours after that. A full refresh takes roughly an hour
-(the United Ladder leaderboards are large); the site keeps serving the old data until it finishes.
+it is more than 24 hours old, then every 24 hours after that. A refresh takes about 45 minutes, because it
+deliberately goes slowly (see "Load on the hosts"); the site keeps serving the old data until it finishes.
 
 | Option | Meaning |
 |---|---|
@@ -42,6 +42,30 @@ serve `data/index.html` any way you like.
 * If a dataset fails to download it keeps its previous data and is retried (the server retries after
   1 hour), so a hiccup never produces fake "new" or "lost" STMs. Tracks whose STM value changed, and
   newly added tracks, are skipped in the comparison.
+
+## Medals
+
+Besides the STM, results are graded by **Super Gold, Super Silver and Super Bronze**: they lie 12.5%, 25% and 50% of
+the way from the STM towards the track's author medal (RTM, read from the exchange API). The same formula works for
+stunt scores. The Players breakdown groups results behind the STM by medal, and Achievements can be filtered by
+STM / Super Gold / Super Silver / Super Bronze. Only players with at least one STM are listed.
+
+## Load on the hosts
+
+The scraper is built to go easy on tmuf/tmnf.exchange and the UnitedLadder API:
+
+* **One request at a time**, with a pause after every request (0.6 s exchange, 1.0 s UnitedLadder) — about one request a second.
+* **Cheap by default.** Each day every United Ladder track is read only down to the STM (about one page of 100 records).
+  The much deeper read needed for medal results (some busy tracks need 100+ pages) is spread out: each run spends at
+  most `DEEP_BUDGET_PAGES` (1000) extra pages on the tracks whose medal data is oldest and keeps the earlier results for
+  the rest, so the daily load has a fixed ceiling. Medal data therefore fills in over the first couple of weeks
+  (the page says how much is covered) and is then refreshed continuously.
+* **Polite on trouble.** A `429 Too Many Requests` is answered by waiting for the `Retry-After` the host sends, retries
+  back off, and a run stops after 3 tracks in a row fail instead of hammering a struggling host.
+
+Knobs: `python update.py --deep-budget 500` (fewer medal pages per run), `--light` (no medal reads this run),
+`--full` (read everything down to Super Bronze now — thousands of requests, use sparingly); delays and the budget are
+constants at the top of `update.py`.
 
 ## Files
 

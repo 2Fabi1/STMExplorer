@@ -20,8 +20,11 @@ Examples:
 --source tmx (default) uses the replays uploaded to tmuf/tmnf.exchange.
 --source ul uses the official in-game leaderboards via the UnitedLadder API
 (api.ul.unitedascenders.xyz), looked up by the map uid in column 2 of the track file.
-There players are matched by their game login, and only records up to 0.5% worse than
-the set value are fetched (leaderboards hold ~100k records, sorted best first).
+There players are matched by their game login, and only records up to the Super Bronze time
+are fetched (leaderboards hold ~100k records, sorted best first).
+
+Medals: the RTM is the track's author medal (from the exchange API). Relative to the STM,
+Super Gold / Silver / Bronze sit 12.5% / 25% / 50% of the way from the STM towards the RTM.
 
 Players (tmx) are matched by user id when every file uses the same site; when several sites are
 mixed (user ids differ between tmuf and tmnf) they are matched by name, case-insensitively.
@@ -32,6 +35,7 @@ import json
 import re
 import sys
 import time
+from datetime import datetime, timezone
 from collections import defaultdict
 
 import requests
@@ -40,6 +44,9 @@ PAGE = 1000
 UL_BASE = "https://api.ul.unitedascenders.xyz"
 UL_PAGE = 100                    # records per leaderboard page
 UL_STUNT_BASE = 4008636142       # UnitedLadder stores a stunt score as UL_STUNT_BASE - score
+# Super Gold / Silver / Bronze: this fraction of the way from the STM to the RTM (author medal).
+# The same formula works for stunt scores, where the RTM is lower than the STM.
+MEDAL_FRACTIONS = {"sg": 0.125, "ss": 0.25, "sb": 0.5}
 HEADERS = {"User-Agent": "tmuf-set-time-counter/1.0"}
 
 
@@ -89,8 +96,9 @@ def get_json(session, url, params, retries=5):
     for attempt in range(retries):
         try:
             r = session.get(url, params=params, headers=HEADERS, timeout=60)
-            if r.status_code == 429:
-                time.sleep(2 * (attempt + 1))
+            if r.status_code == 429:                       # "too many requests": do what the host asks
+                wait = r.headers.get("Retry-After", "")
+                time.sleep(min(float(wait), 120) if wait.replace(".", "", 1).isdigit() else 15 * (attempt + 1))
                 continue
             r.raise_for_status()
             return r.json()
@@ -98,11 +106,11 @@ def get_json(session, url, params, retries=5):
             status = getattr(getattr(e, "response", None), "status_code", None)
             if attempt == retries - 1 or (status is not None and 400 <= status < 500):
                 raise
-            time.sleep(2 * (attempt + 1))
+            time.sleep(5 * (attempt + 1))                  # back off; never retry in a tight loop
     raise RuntimeError("unreachable")
 
 
-def fetch_replays(session, track):
+def fetch_replays(session, track, delay=0.5):
     """All replays of a track, paginated with `after` (last ReplayId)."""
     fields = "ReplayId,ReplayTime,User.UserId,User.Name"
     if track["mode"] == "score":
@@ -119,7 +127,7 @@ def fetch_replays(session, track):
         if not data.get("More") or not results:
             return out
         after = results[-1]["ReplayId"]
-        time.sleep(0.2)
+        time.sleep(delay)
 
 
 def strip_tm(s: str) -> str:
@@ -131,12 +139,42 @@ def strip_tm(s: str) -> str:
     return s.replace("\x00", "$").strip()
 
 
-def fetch_records_ul(session, track, stop_pct, delay):
+def medal_limit(track, fraction):
+    """The result (ms or score) needed for a medal: `fraction` of the way from the STM to the RTM."""
+    rtm = track.get("rtm")
+    return track["set"] if rtm is None else track["set"] + fraction * (rtm - track["set"])
+
+
+def fetch_rtm(session, tracks):
+    """Add the author medal (`rtm`) to every track from the exchange API; returns the names that have none."""
+    missing = []
+    for site in ("tmuf", "tmnf"):
+        group = [t for t in tracks if t["site"] == site]
+        for i in range(0, len(group), 40):
+            chunk = group[i:i + 40]
+            data = get_json(session, f"https://{site}.exchange/api/tracks",
+                            {"id": ",".join(str(t["id"]) for t in chunk), "count": 100,
+                             "fields": "TrackId,AuthorTime,AuthorScore"})
+            by_id = {r["TrackId"]: r for r in data.get("Results", [])}
+            for t in chunk:
+                r = by_id.get(t["id"])
+                value = None if r is None else (r.get("AuthorScore") if t["mode"] == "score" else r.get("AuthorTime"))
+                better = value is not None and (t["set"] > value if t["mode"] == "score" else t["set"] < value)
+                t["rtm"] = value if better else None          # the STM must beat the author medal
+                if not better:
+                    missing.append(t["name"])
+            time.sleep(0.3)
+    return missing
+
+
+def fetch_records_ul(session, track, delay, depth="medals"):
     """Official leaderboard records as (login, nickname, value), best first.
 
-    Pages are fetched until a page ends more than `stop_pct` percent behind the set value.
+    Pages are fetched until a record is behind the limit (the leaderboard is sorted, so everything after it
+    is slower too): the Super Bronze time for depth "medals", or just the STM for the lighter depth "stm".
     Returns (records, total_record_count, pages_fetched).
     """
+    limit = medal_limit(track, MEDAL_FRACTIONS["sb"]) if depth == "medals" else track["set"]
     score = track["mode"] == "score"
     recs, total, page = [], 0, 0
     while True:
@@ -146,8 +184,7 @@ def fetch_records_ul(session, track, stop_pct, delay):
         too_far = False
         for r in rows:
             v = UL_STUNT_BASE - r["points"] if score else r["points"]
-            behind = (track["set"] - v) if score else (v - track["set"])
-            if behind * 100 > track["set"] * stop_pct:   # records are sorted, so the rest is further behind
+            if (v < limit) if score else (v > limit):    # slower than Super Bronze
                 too_far = True
                 break
             recs.append((r["login"], strip_tm(r.get("nickname", "")) or r["login"], v))
@@ -167,14 +204,17 @@ def main():
                     help="require strictly better than the set value (default: equal also counts)")
     ap.add_argument("--source", choices=("tmx", "ul"), default="tmx",
                     help="tmx = replays on tmuf/tmnf.exchange (default); ul = UnitedLadder official leaderboards")
-    ap.add_argument("--ul-miss-pct", type=float, default=0.5, metavar="PCT",
-                    help="ul only: fetch records up to PCT percent behind the set value (default 0.5)")
+    ap.add_argument("--depth", choices=("medals", "stm"), default="medals",
+                    help="ul only: how deep to read each leaderboard: down to Super Bronze (default, ~7 pages a track) "
+                         "or only down to the STM (the light daily scan, ~2 pages a track)")
+    ap.add_argument("--deep-tracks", nargs="*", default=[], metavar="NAME",
+                    help="ul only, with --depth stm: these tracks are still read down to Super Bronze")
     ap.add_argument("--fail-on-error", action="store_true",
                     help="exit non-zero (writing nothing) if any track could not be fetched")
     ap.add_argument("--csv", help="write the ranking to this CSV file")
     ap.add_argument("--json", help="write full results (tracks + players) to this JSON file")
     ap.add_argument("--label", default="", help="dataset label stored in the JSON")
-    ap.add_argument("--delay", type=float, default=0.2, help="seconds between requests")
+    ap.add_argument("--delay", type=float, default=0.5, help="seconds to wait after every request")
     args = ap.parse_args()
 
     tracks = [t for spec in args.tracks for t in load_tracks(spec)]
@@ -192,21 +232,32 @@ def main():
     nicks = {}                  # ul only: player key -> nickname (formatting stripped)
     track_info = []
     failures = []               # tracks whose leaderboard could not be fetched
+    deep_tracks = set(args.deep_tracks)
+    in_a_row = 0                # consecutive failed tracks; the run stops at 3 rather than keep hitting a struggling host
     session = requests.Session()
+    for name in fetch_rtm(session, tracks):
+        print(f"  WARNING: no author medal (RTM) for {name}; its medal times are unavailable", file=sys.stderr)
+        failures.append(name)
 
     for i, t in enumerate(tracks, 1):
         score = t["mode"] == "score"
         if ul:
             try:
-                recs, total, pages = fetch_records_ul(session, t, args.ul_miss_pct, args.delay)
+                deep = args.depth == "medals" or t["name"] in deep_tracks
+                recs, total, pages = fetch_records_ul(session, t, args.delay, "medals" if deep else "stm")
                 if total == 0:   # the API answers 200 with an empty list for an unknown map uid
                     raise requests.RequestException("leaderboard is empty (unknown map uid?)")
             except requests.RequestException as e:
                 print(f"  WARNING: {t['name']} ({t['uid']}) failed: {e}", file=sys.stderr)
                 failures.append(t["name"])
                 recs, total, pages = [], 0, 0
+                in_a_row += 1
+                if in_a_row >= 3:
+                    sys.exit("Stopping: 3 tracks in a row failed; not hammering the host any further.")
+            else:
+                in_a_row = 0
         else:
-            replays = fetch_replays(session, t)
+            replays = fetch_replays(session, t, args.delay)
             if len({r["ReplayId"] for r in replays}) != len(replays):
                 print(f"  WARNING: duplicate replays returned for {t['name']}", file=sys.stderr)
             recs, total, pages = [], len(replays), 0
@@ -237,8 +288,20 @@ def main():
                     if old is None or (v > old if score else v < old):
                         miss[key][t["name"]] = v
         beaten = sum(1 for k in times if t["name"] in times[k])
+        # Where the STM would rank on the leaderboard today: one place behind every player whose best
+        # result is strictly better (players level with the STM share its place).
+        best = {}
+        for key, _name, v in recs:
+            old = best.get(key)
+            if old is None or (v > old if score else v < old):
+                best[key] = v
+        place = 1 + sum(1 for v in best.values() if (v > t["set"] if score else v < t["set"])) if total else None
         track_info.append({"name": t["name"], "id": t["id"], "set": t["set"], "site": t["site"],
-                           "mode": t["mode"], "replays": total, "beaten_by": beaten})
+                           "mode": t["mode"], "replays": total, "beaten_by": beaten, "place": place,
+                           "rtm": t.get("rtm"),
+                           # UnitedLadder: when this track was last read down to Super Bronze (None = only to the STM)
+                           **({"medals_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                               "deep_pages": pages} if ul and deep and total else {})})
         print(f"[{i:3}/{len(tracks)}] {t['name']:<14} {t['site']} id={t['id']:<8} "
               f"set={fmt_value(t, t['set']):>8}  {'records' if ul else 'replays'}={total:<6}"
               f"{f' pages={pages}' if ul else ''} beaten_by={beaten}",

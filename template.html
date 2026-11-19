@@ -7,17 +7,17 @@
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #16191d; --muted: #667085; --line: #e3e6ea;
-    --accent: #2563eb; --accent-soft: #e8efff; --gold: #b7791f; --good: #15803d; --red: #dc2626;
+    --accent: #2563eb; --accent-soft: #e8efff; --gold: #b7791f; --silver: #6b7280; --bronze: #b45309; --good: #15803d; --red: #dc2626;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #0f1216; --card: #171b21; --text: #e8eaed; --muted: #8b95a3; --line: #272d36;
-      --accent: #6b9bff; --accent-soft: #1c2a47; --gold: #e3b341; --good: #4ade80; --red: #f87171;
+      --accent: #6b9bff; --accent-soft: #1c2a47; --gold: #e3b341; --silver: #cbd5e1; --bronze: #d9822b; --good: #4ade80; --red: #f87171;
     }
   }
   :root[data-theme="dark"] {
     --bg: #0f1216; --card: #171b21; --text: #e8eaed; --muted: #8b95a3; --line: #272d36;
-    --accent: #6b9bff; --accent-soft: #1c2a47; --gold: #e3b341; --good: #4ade80; --red: #f87171;
+    --accent: #6b9bff; --accent-soft: #1c2a47; --gold: #e3b341; --silver: #cbd5e1; --bronze: #d9822b; --good: #4ade80; --red: #f87171;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -93,8 +93,10 @@
   .prog.full { color: var(--good); font-weight: 600; }
   .prog.full .bar i { background: var(--good); }
   .chip.miss em { color: var(--gold); }
-  .chip.tier1 em { color: var(--red); }
-  .chip.tier2 em { color: var(--muted); }
+  .chip.tier0 em { color: var(--gold); }      /* Super Gold */
+  .chip.tier1 em { color: var(--silver); }    /* Super Silver */
+  .chip.tier2 em { color: var(--bronze); }    /* Super Bronze */
+  .chip.tier3 em { color: var(--muted); }     /* slower than Super Bronze */
   .chip em { font-style: normal; color: var(--good); margin-left: 4px; }
   .chip:hover { border-color: var(--accent); }
   .scroll { max-height: 70vh; overflow: auto; }
@@ -163,6 +165,24 @@ const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.crea
 const ENVS = ["Stadium", "Island", "Desert", "Rally", "Bay", "Coast", "Snow"];
 const DIFFS = [["A", "White", "#f3f4f6"], ["B", "Green", "#22c55e"], ["C", "Blue", "#3b82f6"], ["D", "Red", "#ef4444"], ["E", "Black", "#111827"]];
 const DIFF_NAME = Object.fromEntries(DIFFS.map(([c, n]) => [c, n]));
+
+// ---- Medals. The RTM is the track's author medal; relative to the STM, Super Gold / Silver / Bronze lie
+// 12.5% / 25% / 50% of the way from the STM towards the RTM (the same formula works for stunt scores).
+const MEDALS = [{ id: "stm", name: "STM", f: 0 }, { id: "sg", name: "Super Gold", f: 0.125 },
+                { id: "ss", name: "Super Silver", f: 0.25 }, { id: "sb", name: "Super Bronze", f: 0.5 }];
+const medalLimit = (t, f) => t.rtm == null ? t.set : t.set + f * (t.rtm - t.set);
+const within = (t, v, limit) => t.mode === "score" ? v >= limit : v <= limit;   // time: lower is better; score: higher
+// 0 = beats the STM, 1 / 2 / 3 = Super Gold / Silver / Bronze, 4 = slower than Super Bronze
+function medalTier(t, v) {
+  if (within(t, v, t.set)) return 0;
+  for (let k = 1; k <= 3; k++) if (within(t, v, medalLimit(t, MEDALS[k].f))) return k;
+  return 4;
+}
+// A medal limit as a player would read it: times round down to the hundredth, scores round up.
+const shownLimit = (t, f) => { const x = medalLimit(t, f); return t.mode === "score" ? Math.ceil(x - 1e-9) : Math.floor(x / 10 + 1e-9) * 10; };
+const medalTip = (t) => t.rtm == null ? "" : [`STM ${fv(t, t.set)}`,
+  ...MEDALS.slice(1).map(m => `${m.name} ${t.mode === "score" ? "≥" : "≤"} ${fv(t, shownLimit(t, m.f))}`),
+  `RTM ${fv(t, t.rtm)}`].join(" · ");
 const U_RE = /^(Star)?(Stadium|Island|Desert|Rally|Bay|Coast|Snow)([A-E])\d?$/;
 function classify(name) {
   const m = U_RE.exec(name);
@@ -200,7 +220,7 @@ function derive(all, label, pred) {
 const DATASETS = [["U", "United", "United STM: Nadeo + Star tracks"], ["N", "Nations", "Nations STM"],
                   ["P", "Puzzle", "Puzzle STM"], ["S", "Stunt", "Stunt STM"], ["ALL", "All", "Everything combined"]];
 const SOURCES = [["tmx", "Exchange replays"], ["ul", "United Ladder"]].filter(([s]) => DATA.some(d => (d.source || "tmx") === s));
-let source = SOURCES[0][0], all, ach = null, cur;
+let source = SOURCES[0][0], all, ach = {}, cur;
 let ds = "U", sub = { diff: null, env: null };      // selected dataset; United filters (null = All)
 
 function pickDataset() {
@@ -218,7 +238,7 @@ const getAll = (s) => allCache[s] || (allCache[s] = merge(DATA.filter(d => (d.so
 function pickSource(s) {
   source = s;
   all = getAll(s);
-  ach = null;            // achievements are recomputed lazily for the new source
+  ach = {};              // achievements are recomputed lazily (per medal level) for the new source
   pickDataset();
 }
 pickSource(source);
@@ -279,13 +299,10 @@ function renderPlayers(q) {
         return d;
       };
       const byName = (x, y) => x[0].localeCompare(y[0], undefined, { numeric: true });
-      // Split misses into tiers by how far short of the set value they are (relative to it).
-      const tiers = [[], [], []];
-      for (const [n, v] of Object.entries(p.miss || {})) {
-        const t = tmap[n], diff = t.mode === "score" ? t.set - v : v - t.set;
-        tiers[diff * 1000 <= t.set ? 0 : diff * 200 <= t.set ? 1 : 2].push([n, v]);
-      }
-      const titles = ["Missing by 0.1% or less", "Missing by 0.1% – 0.5%", "Missing by more than 0.5%"];
+      // Results behind the STM, grouped by the medal they earn: Super Gold / Silver / Bronze, or slower.
+      const tiers = [[], [], [], []];
+      for (const [n, v] of Object.entries(p.miss || {})) tiers[Math.max(medalTier(tmap[n], v), 1) - 1].push([n, v]);
+      const titles = ["Super Gold", "Super Silver", "Super Bronze", "Slower than Super Bronze"];
       const cell = el("td", { colSpan: 4 }, sec("Beaten", Object.entries(p.times).sort(byName), false));
       tiers.forEach((list, i) => { if (list.length) cell.append(sec(titles[i], list.sort(byName), true, i)); });
       tbody.append(el("tr", { className: "detail" }, cell));
@@ -312,12 +329,14 @@ function renderTracks(q) {
     rows = rows.map((t, i) => [t, i]).sort(([a, i], [b, j]) =>
       sgn * (sort.key === "name" ? a.name.localeCompare(b.name, undefined, { numeric: true })
                                  : sort.key === "pps" ? pps(a) - pps(b)
+                                 : sort.key === "place" ? (a.place ?? NO_HOLDERS) - (b.place ?? NO_HOLDERS)
                                  : a[sort.key] - b[sort.key]) || i - j).map(([t]) => t);
   }
   const tbody = el("tbody");
   rows.forEach(t => tbody.append(el("tr", {},
     el("td", {}, el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: t.name })),
-    el("td", { className: "num", textContent: fv(t, t.set) }),
+    el("td", { className: "num", textContent: fv(t, t.set), title: medalTip(t) }),
+    el("td", { className: "num", textContent: t.place == null ? "–" : "#" + t.place.toLocaleString("en-US") }),
     el("td", { className: "num", textContent: t.replays }),
     el("td", { className: "num", textContent: t.beaten_by }),
     el("td", { className: "num", textContent: fmtPps(t) }))));
@@ -325,7 +344,7 @@ function renderTracks(q) {
   const th = (label, key, cls = "num") => sortTh(label, key, sort, cls, key === "name");
   return [el("table", {}, el("thead", {}, el("tr", {},
     th("Track", "name", ""), el("th", { className: "num", textContent: "STM" }),
-    th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"),
+    th("Place", "place"), th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"),
     th("Players/STM", "pps"))), tbody)];
 }
 
@@ -402,25 +421,40 @@ const TAGS_PRIMARY = [
 const TAGS_DIFF = DIFFS.map(([c, name, dot]) => ({ id: "d" + c, name, dot, pred: t => t.cat === "U" && t.diff === c }));
 const TAGS_ENV = ENVS.map(env => ({ id: "e" + env, name: env, pred: t => t.cat === "U" && t.env === env }));
 const TAGS_UNITED = [...TAGS_DIFF, ...TAGS_ENV];
-const am = { mode: "primary", group: "diff" };        // primary tags, or United sub-tags by difficulty / environment
+const am = { mode: "primary", group: "diff", level: "stm" };        // primary tags, or United sub-tags by difficulty / environment
 const asort = { key: "default", dir: "desc" };        // "default" = most tags done, then closest overall
 
-function achievementData() {
-  if (ach) return ach;
+// United Ladder medal results are read gradually (see update.py); say so while some tracks still lack them.
+function medalCoverageNote(level) {
+  if (source !== "ul" || level.id === "stm") return "";
+  const have = all.tracks.filter(t => t.medals_at).length;
+  return have >= all.tracks.length ? "" : ` · medal data covers ${have} of ${all.tracks.length} tracks so far (read gradually to go easy on the host)`;
+}
+
+function achievementData(level) {
+  if (ach[level]) return ach[level];
+  const f = MEDALS.find(m => m.id === level).f, tmap = setOf(all);
   const tags = [...TAGS_PRIMARY, ...TAGS_UNITED].map(tg => {
     const names = new Set(all.tracks.filter(tg.pred).map(t => t.name));
     return { ...tg, names, total: names.size };
   });
   const players = all.players.map(p => {
+    // tracks where the player's best result earns this medal (an STM also earns every medal below it)
+    const qual = new Set();
+    for (const src of [p.times, p.miss || {}]) for (const name in src) {
+      const t = tmap[name];
+      if (t && within(t, src[name], medalLimit(t, f))) qual.add(name);
+    }
     const n = {};
-    for (const tg of tags) { let c = 0; for (const name in p.times) if (tg.names.has(name)) c++; n[tg.id] = c; }
+    for (const tg of tags) { let c = 0; for (const name of qual) if (tg.names.has(name)) c++; n[tg.id] = c; }
     return { id: p.id, name: p.name, nick: p.nick, n };
   });
-  return (ach = { tags, players });
+  return (ach[level] = { tags, players });
 }
 
 function renderAchievements(q) {
-  const A = achievementData();
+  const A = achievementData(am.level);
+  const level = MEDALS.find(m => m.id === am.level);
   const group = am.mode === "primary" ? TAGS_PRIMARY : am.group === "diff" ? TAGS_DIFF : TAGS_ENV;
   const tags = group.map(g => A.tags.find(t => t.id === g.id)).filter(t => t.total > 0);
   const isDone = (p, t) => p.n[t.id] === t.total;
@@ -441,7 +475,9 @@ function renderAchievements(q) {
   const bar = el("div", { className: "subbar" },
     segment("mode", [["primary", "Primary tags (Nadeo)"], ["united", "United sub-tags (bronze)"]]),
     ...(am.mode === "united" ? [segment("group", [["diff", "Difficulty"], ["env", "Environment"]])] : []),
-    el("span", { className: "muted", textContent: "Beat the STM on every track of a tag to earn it · click a column to sort" }));
+    segment("level", MEDALS.map(m => [m.id, m.name])),
+    el("span", { className: "muted", textContent: (level.id === "stm" ? "Beat the STM on every track of a tag to earn it"
+      : `Earn ${level.name} (or better) on every track of a tag`) + " · click a column to sort" + medalCoverageNote(level) }));
   if (!rows.length) return [bar, el("div", { className: "empty", textContent: "No matching players." })];
 
   const th = (t) => {
@@ -568,9 +604,9 @@ function renderMerge() {
 }
 
 const NOTES = {
-  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track.",
+  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM).",
   tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. Players are matched by name, because user ids differ between tmuf and tmnf.",
-  ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Only results up to 0.5% behind an STM were fetched, so there is no \"more than 0.5%\" tier.",
+  ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Medal results (down to Super Bronze) are read gradually, a few hundred leaderboard pages a day, to go easy on the host: tracks not read yet show STM results only, and there is no \"slower than Super Bronze\" section.",
 };
 const SUBS = { tmx: "How many tracks each player has a replay faster than the STM · data from tmuf.exchange & tmnf.exchange",
                ul: "How many tracks each player has an official record faster than the STM · data from UnitedLadder" };
