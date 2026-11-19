@@ -92,6 +92,9 @@
   .prog.zero { color: var(--muted); }
   .prog.full { color: var(--good); font-weight: 600; }
   .prog.full .bar i { background: var(--good); }
+  .pcell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  .tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+  .tagimg { height: 30px; width: auto; display: block; }   /* the game's tag plaques are 150x64 */
   .chip.miss em { color: var(--gold); }
   .chip.tier0 em { color: var(--gold); }      /* Super Gold */
   .chip.tier1 em { color: var(--silver); }    /* Super Silver */
@@ -280,7 +283,7 @@ function renderPlayers(q) {
   rows.slice(0, shown).forEach(p => {
     const tr = el("tr", { className: "player" });
     tr.append(el("td", { className: "rank" + (p.rank <= 3 ? " top" : ""), textContent: p.rank }),
-      el("td", { textContent: p.name, title: p.nick || "" }),
+      nameCell(p.name, p.nick, p.id),
       el("td", { className: "num", textContent: `${p.count}/${total}` }),
       el("td", { className: "hide-sm" }, el("div", { className: "bar" }, Object.assign(el("i"), { style: `width:${100 * p.count / total}%` }))));
     tr.onclick = () => { open.has(p.id) ? open.delete(p.id) : open.add(p.id); render(); };
@@ -352,7 +355,7 @@ function renderImprovements(q) {
   const tmap = setOf(cur);
   let rows = cur.players.flatMap(p => Object.entries(p.times).map(([name, v]) => {
     const t = tmap[name], abs = t.mode === "score" ? v - t.set : t.set - v;
-    return { player: p.name, nick: p.nick, t, v, abs, pct: 100 * abs / t.set };
+    return { player: p.name, nick: p.nick, id: p.id, t, v, abs, pct: 100 * abs / t.set };
   })).filter(r => r.abs > 0 && (!q || r.player.toLowerCase().includes(q) || (r.nick || "").toLowerCase().includes(q) || r.t.name.toLowerCase().includes(q)));
   const sgn = isort.dir === "asc" ? 1 : -1;
   rows.sort((a, b) => sgn * (isort.key === "player" ? a.player.localeCompare(b.player)
@@ -362,7 +365,7 @@ function renderImprovements(q) {
   const tbody = el("tbody");
   rows.slice(0, shown).forEach((r, i) => tbody.append(el("tr", {},
     el("td", { className: "rank" + (i < 3 && isort.key === "pct" && isort.dir === "desc" ? " top" : ""), textContent: i + 1 }),
-    el("td", { textContent: r.player }),
+    nameCell(r.player, r.nick, r.id),
     el("td", {}, el("a", { href: link(r.t), target: "_blank", rel: "noopener", textContent: r.t.name })),
     el("td", { className: "num hide-sm", textContent: fv(r.t, r.t.set) }),
     el("td", { className: "num", textContent: fv(r.t, r.v) }),
@@ -397,7 +400,7 @@ function renderNew(q) {
     const t = tmap[e.track];
     fbody.append(el("tr", {},
       el("td", { textContent: new Date(e.t).toLocaleDateString() }),
-      el("td", { textContent: e.player, title: e.nick || "" }),
+      nameCell(e.player, e.nick, e.player.toLowerCase()),
       el("td", {}, el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: e.track })),
       el("td", { className: "num", textContent: fv(t, e.value) }),
       el("td", { className: "num", textContent: delta(t, e.value) })));
@@ -451,6 +454,28 @@ function achievementData(level) {
   });
   return (ach[level] = { tags, players });
 }
+
+// --- Tags: the game's tag plaques, shown next to a player who beat EVERY STM of a category.
+// Only STM results count here; Super Gold / Silver / Bronze never earn a tag.
+const TAG_IMG = { U: 71660, N: 71661, P: 71662, S: 71663,                                   // United, Nations, Puzzle, Stunt
+  dA: 71664, dB: 71665, dC: 71666, dD: 71667, dE: 71668,                                    // White, Green, Blue, Red, Black
+  eStadium: 71669, eIsland: 71670, eDesert: 71671, eRally: 71672, eBay: 71673, eCoast: 71674, eSnow: 71675 };
+const tagTitle = (t) => TAGS_PRIMARY.some(g => g.id === t.id) ? `${t.name}: all ${t.total} STMs` : `${t.name} (United): all ${t.total} STMs`;
+const tagImg = (t) => el("img", { className: "tagimg", src: `https://players.trackmaniaforever.com/tags/${TAG_IMG[t.id]}.png`,
+  alt: t.name, title: tagTitle(t), loading: "lazy", onerror: (e) => e.target.remove() });   // no broken icon if the image can't load
+
+function doneTags() {   // player id -> tags completed at STM level, for the current source
+  if (ach.done) return ach.done;
+  const A = achievementData("stm"), m = new Map();
+  for (const pl of A.players) {
+    const ts = A.tags.filter(t => t.total > 0 && pl.n[t.id] === t.total);
+    if (ts.length) m.set(pl.id, ts);
+  }
+  return (ach.done = m);
+}
+const tagBadges = (id) => { const ts = doneTags().get(id); return ts ? [el("span", { className: "tags" }, ...ts.map(tagImg))] : []; };
+// a player-name cell: the name, then that player's tags
+const nameCell = (name, nick, id) => el("td", { title: nick || "" }, el("div", { className: "pcell" }, el("span", { textContent: name }), ...tagBadges(id)));
 
 function renderAchievements(q) {
   const A = achievementData(am.level);
@@ -598,6 +623,10 @@ function renderMerge() {
   return [...noteEls,
     el("div", { className: "mpad" }, el("div", { className: "stats" }, ...tiles.map(([b, l]) =>
       el("div", { className: "stat" }, el("b", { textContent: b }), el("span", { textContent: l }))))),
+    el("div", { className: "mhead", textContent: "Tags earned" }),
+    el("div", { className: "mpad" }, rows.some(r => r.n === r.total)
+      ? el("div", { className: "tags" }, ...rows.filter(r => r.n === r.total).map(tagImg))
+      : el("div", { className: "muted", textContent: "None yet. A tag needs every STM of its category." })),
     el("div", { className: "mhead", textContent: "Closest to completing" }),
     el("div", { className: "mpad" }, ...closestEls),
     el("div", { className: "mhead", textContent: "All tags" }), table];

@@ -50,6 +50,14 @@ the way from the STM towards the track's author medal (RTM, read from the exchan
 stunt scores. The Players breakdown groups results behind the STM by medal, and Achievements can be filtered by
 STM / Super Gold / Super Silver / Super Bronze. Only players with at least one STM are listed.
 
+## Tags
+
+A player who has beaten **every STM** of a category gets that category's tag plaque (the game's own images from
+players.trackmaniaforever.com/tags/71660–71675) next to their name in the Players, New STMs and Improvements views, and
+the Merge tab lists the tags your merged account has earned. The 16 tags are United, Nations, Puzzle, Stunt; White, Green,
+Blue, Red, Black; Stadium, Island, Desert, Rally, Bay, Coast, Snow. Only STMs count: Super Gold, Silver and Bronze never
+earn a tag.
+
 ## The CSV
 
 Every refresh also rewrites **`stm-data.csv`** — everything the site shows as one file, one row per player and track:
