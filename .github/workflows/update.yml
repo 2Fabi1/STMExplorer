@@ -1,6 +1,10 @@
 name: Update STM data
 
-# Refreshes all STM data once a day, detects new STMs, and publishes the site to GitHub Pages.
+# Two modes:
+#  * REFRESH (the daily schedule, or "Run workflow" with "refresh" ticked): downloads all data again (about 15 min),
+#    detects new STMs, saves the state and publishes.
+#  * REPUBLISH (the default for "Run workflow"): rebuilds the page from the data saved on the "data" branch and
+#    publishes it (about 1 minute). Use this after a change to the page itself; use REFRESH if the data format changed.
 # One-time setup: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
 # State (snapshots + event log) lives on a single-commit "data" branch that is replaced every run,
 # so the history of main does not grow.
@@ -9,6 +13,11 @@ on:
   schedule:
     - cron: "17 3 * * *"      # every day at 03:17 UTC
   workflow_dispatch:           # "Run workflow" button in the Actions tab
+    inputs:
+      refresh:
+        description: "Download all data again (about 15 min). Leave off to just republish the page from the saved data (about 1 min)."
+        type: boolean
+        default: false
 
 concurrency:
   group: stm-update
@@ -17,9 +26,11 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 300       # a full refresh takes about an hour
+    timeout-minutes: 300       # a full refresh takes about 15 minutes
     permissions:
       contents: write          # to update the "data" branch
+    env:
+      REFRESH: ${{ github.event_name == 'schedule' || inputs.refresh }}
     outputs:
       incomplete: ${{ steps.result.outputs.incomplete }}
     steps:
@@ -45,14 +56,20 @@ jobs:
 
       - name: Refresh data
         id: update
+        if: env.REFRESH == 'true'
         continue-on-error: true      # a partial refresh is still saved and published; reported below
         run: python update.py
+
+      - name: Rebuild the page from the saved data
+        if: env.REFRESH != 'true'
+        run: python -c "import update; update.ensure_state(); update.rebuild_site(); print('page rebuilt from the saved data')"
 
       - name: Record whether the refresh was complete
         id: result
         run: echo "incomplete=${{ steps.update.outcome == 'failure' }}" >> "$GITHUB_OUTPUT"
 
       - name: Save state to the data branch
+        if: env.REFRESH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
