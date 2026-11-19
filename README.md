@@ -50,30 +50,34 @@ the way from the STM towards the track's author medal (RTM, read from the exchan
 stunt scores. The Players breakdown groups results behind the STM by medal, and Achievements can be filtered by
 STM / Super Gold / Super Silver / Super Bronze. Only players with at least one STM are listed.
 
-## Load on the hosts
+## The CSV
 
-The scraper is built to go easy on tmuf/tmnf.exchange and the UnitedLadder API:
+Every refresh also rewrites **`stm-data.csv`** — everything the site shows as one file, one row per player and track:
+`source` (exchange / unitedladder), `category` (United / Nations / Puzzle / Stunt), `difficulty` and `environment`
+(United only), `track`, `mode`, `stm`, `rtm` (author medal), `player`, `nickname`, `result`, `vs_stm` (how far behind the
+STM: negative = better; seconds, or points for stunt) and `medal` (STM / Super Gold / Super Silver / Super Bronze /
+Slower than Super Bronze). Times are in seconds; only players with at least one STM are included. It opens in Excel
+(UTF-8 with BOM).
 
-* **One request at a time**, with a pause after every request (0.6 s exchange, 1.0 s UnitedLadder) — about one request a second.
-* **Cheap by default.** Each day every United Ladder track is read only down to the STM (about one page of 100 records).
-  The much deeper read needed for medal results (some busy tracks need 100+ pages) is spread out: each run spends at
-  most `DEEP_BUDGET_PAGES` (1000) extra pages on the tracks whose medal data is oldest and keeps the earlier results for
-  the rest, so the daily load has a fixed ceiling. Medal data therefore fills in over the first couple of weeks
-  (the page says how much is covered) and is then refreshed continuously.
-* **Polite on trouble.** A `429 Too Many Requests` is answered by waiting for the `Retry-After` the host sends, retries
-  back off, and a run stops after 3 tracks in a row fail instead of hammering a struggling host.
+It is published next to the site (**Download all data (CSV)** in the footer, `/stm-data.csv`) and kept on the `data`
+branch. `python update.py --export-csv` rewrites it from the saved data in a couple of seconds, without downloading anything.
 
-Knobs: `python update.py --deep-budget 500` (fewer medal pages per run), `--light` (no medal reads this run),
-`--full` (read everything down to Super Bronze now — thousands of requests, use sparingly); delays and the budget are
-constants at the top of `update.py`.
+## Speed and load
+
+A refresh runs the datasets 3 at a time with short pauses between requests (0.2 s exchange, 0.3 s UnitedLadder) and reads
+every United Ladder track down to Super Bronze each time. The safety nets stay: a `429 Too Many Requests` is answered by
+waiting for the `Retry-After` the host sends, retries back off, and a run stops after 3 tracks in a row fail.
+`python update.py --deep-budget N` caps the extra medal pages per run (the oldest medal data is refreshed first, the
+rest is kept), `--light` skips the medal reads for a run; `MAX_PARALLEL`, `REQUEST_DELAY` and `DEEP_BUDGET_PAGES`
+are constants at the top of `update.py`.
 
 ## Files
 
-* `update.py` — one full refresh (`--only star`, `--source tmx` to limit it); `server.py` — site + scheduler
+* `update.py` — one full refresh (`--only star`, `--source tmx` to limit it, `--export-csv`); `server.py` — site + scheduler
 * `count_beats.py` — the scraper for one dataset; `build_site.py` + `template.html` — the page
 * `tracks*.txt` — track lists (`name  map-uid  exchange-id  STM`); edit these to add tracks
 * `*.json`, `results*.csv` — committed snapshots (seed data) from the manual runs
-* `data/` (git-ignored) — live state: current snapshots, `events.json`, `meta.json`, `index.html`, `logs/`
+* `data/` (git-ignored) — live state: current snapshots, `events.json`, `meta.json`, `index.html`, `stm-data.csv`, `logs/`
 
 ## No server: GitHub Actions + Pages
 

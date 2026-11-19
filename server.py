@@ -9,6 +9,7 @@ STM Stats server: serves the site and refreshes the data every 24 hours.
 Only these URLs are served (nothing else on disk is exposed):
     /              the site (data/index.html)
     /events.json   every detected new STM
+    /stm-data.csv  everything as one CSV (rewritten after every refresh)
     /status        JSON: last update, next update, whether a refresh is running
 
 The refresh itself is update.py; run `python update.py` yourself (cron / Task Scheduler) if you
@@ -68,9 +69,11 @@ def scheduler(interval: timedelta, update_on_start: bool, stop: threading.Event)
 class Handler(BaseHTTPRequestHandler):
     server_version = "STMStats"
 
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, download: str | None = None) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if download:
+            self.send_header("Content-Disposition", f'attachment; filename="{download}"')
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
@@ -87,6 +90,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/events.json":
             f = update.DATA / "events.json"
             return self._send(200, f.read_bytes() if f.exists() else b"[]", "application/json")
+        if path == "/" + update.CSV_NAME:
+            f = update.DATA / update.CSV_NAME
+            if f.exists():
+                return self._send(200, f.read_bytes(), "text/csv; charset=utf-8", download=update.CSV_NAME)
+            return self._send(404, b"No CSV yet - it is written after the first refresh.", "text/plain")
         if path == "/status":
             meta = update.read_json(update.DATA / "meta.json", {})
             nxt = State.next_update

@@ -20,9 +20,11 @@ Usage:
     python update.py --source tmx         # just the exchange-replay source (tmx | ul)
 """
 import argparse
+import csv
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -49,12 +51,12 @@ JOBS = [
                                                          ("tracks_ext_stunt.txt", ":tmuf:score")]},
 ]
 SOURCES = {"tmx": "", "ul": "_ul"}      # source -> json file suffix
-MAX_PARALLEL = 1                        # one scraper at a time: steady and gentle on the hosts
-REQUEST_DELAY = {"ul": 1.0, "tmx": 0.6}  # seconds waited after every request, per source
-# UnitedLadder: every day each track is read down to the STM (about 1 page). Medal results (Super Bronze depth)
-# need many more pages on busy tracks, so they are read gradually: each run reads the tracks with the oldest
-# medal data until about this many extra pages are used, and keeps the earlier results for the rest.
-DEEP_BUDGET_PAGES = 1000
+MAX_PARALLEL = 3                        # concurrent count_beats.py processes
+REQUEST_DELAY = {"ul": 0.3, "tmx": 0.2}  # seconds waited after every request, per source
+# UnitedLadder medal results (Super Bronze depth) take many pages on busy tracks. None = read every track down to
+# Super Bronze on every run. A number caps the extra pages per run: the tracks with the oldest medal data are
+# read first and the earlier results are kept for the rest (see plan_deep_reads / carry_medals).
+DEEP_BUDGET_PAGES = None
 DEFAULT_DEEP_PAGES = 25                 # page estimate for a track that has not been read deep yet
 LOG_KEEP_DAYS = 14
 
@@ -115,7 +117,87 @@ def ensure_state() -> dict:
         log.info("Seeded %s from the committed snapshots", ", ".join(seeded))
     if data_files() and not (DATA / "index.html").exists():
         rebuild_site()
+    if data_files() and not (DATA / CSV_NAME).exists():
+        write_csv()
     return meta
+
+
+# ---------------------------------------------------------------- CSV export of everything
+
+CSV_NAME = "stm-data.csv"
+CSV_HEADER = ["source", "category", "difficulty", "environment", "track", "mode", "stm", "rtm", "player", "nickname",
+              "result", "vs_stm", "medal"]
+_U_RE = re.compile(r"^(Star)?(Stadium|Island|Desert|Rally|Bay|Coast|Snow)([A-E])\d?$")
+_DIFF = {"A": "White", "B": "Green", "C": "Blue", "D": "Red", "E": "Black"}
+MEDAL_NAMES = ["STM", "Super Gold", "Super Silver", "Super Bronze", "Slower than Super Bronze"]
+
+
+def classify_track(name: str) -> tuple[str, str, str]:
+    """(category, difficulty, environment) from a track name, like the page does."""
+    m = _U_RE.match(name)
+    if m:
+        return "United", _DIFF[m.group(3)], m.group(2)
+    if re.match(r"^[A-E]\d\d-", name):
+        return "Nations", "", ""
+    if name.startswith("Puzzle"):
+        return "Puzzle", "", ""
+    if name.startswith("Stunt"):
+        return "Stunt", "", ""
+    return "", "", ""
+
+
+def medal_index(t: dict, v) -> int:
+    """0 = beats the STM, 1/2/3 = Super Gold/Silver/Bronze, 4 = slower than Super Bronze."""
+    score = t.get("mode") == "score"
+    within = (lambda x: v >= x) if score else (lambda x: v <= x)
+    if within(t["set"]):
+        return 0
+    for k, fraction in enumerate(count_beats.MEDAL_FRACTIONS.values(), 1):
+        if within(count_beats.medal_limit(t, fraction)):
+            return k
+    return 4
+
+
+def write_csv() -> Path | None:
+    """Everything the site shows, as one CSV (one row per player and track), written from the saved snapshots.
+
+    Columns: source (exchange / unitedladder), category (United / Nations / Puzzle / Stunt), difficulty and
+    environment (United only), track, mode (time / score), stm, rtm (author medal), player, nickname, result,
+    vs_stm (how far behind the STM: negative = better; seconds, or points for stunt), medal.
+    Times are in seconds. Like the site, only players with at least one STM are included.
+    """
+    rows = []
+    for source, label in (("tmx", "exchange"), ("ul", "unitedladder")):
+        for job in JOBS:
+            d = read_json(DATA / json_name(job["id"], source), None)
+            if not d:
+                continue
+            by_track: dict[str, list] = {}
+            for p in d["players"]:
+                for results in (p["times"], p.get("miss", {})):
+                    for name, v in results.items():
+                        by_track.setdefault(name, []).append((p, v))
+            for t in d["tracks"]:
+                score = t.get("mode") == "score"
+                show = (lambda x: str(x)) if score else (lambda x: f"{x / 1000:.2f}")
+                cat, diff, env = classify_track(t["name"])
+                entries = sorted(by_track.get(t["name"], []), key=lambda pv: (-pv[1] if score else pv[1], pv[0]["name"].lower()))
+                for p, v in entries:
+                    behind = (t["set"] - v) if score else (v - t["set"]) / 1000
+                    rows.append([label, cat, diff, env, t["name"], "score" if score else "time", show(t["set"]),
+                                 "" if t.get("rtm") is None else show(t["rtm"]), p["name"], p.get("nick") or "",
+                                 show(v), f"{behind:+d}" if score else f"{behind:+.2f}", MEDAL_NAMES[medal_index(t, v)]])
+    if not rows:
+        return None
+    out = DATA / CSV_NAME
+    tmp = out.with_name(out.name + ".tmp")
+    with open(tmp, "w", newline="", encoding="utf-8-sig") as f:     # BOM so Excel reads the names correctly
+        w = csv.writer(f)
+        w.writerow(CSV_HEADER)
+        w.writerows(rows)
+    os.replace(tmp, out)
+    log.info("Wrote %s: %d rows, %.1f MB", out.name, len(rows), out.stat().st_size / 1e6)
+    return out
 
 
 def rebuild_site() -> None:
@@ -212,7 +294,7 @@ def carry_medals(old: dict, new: dict) -> None:
         p["miss"] = {**keep, **p["miss"]}
 
 
-def plan_deep_reads(jobs: list[dict], full: bool | None, budget: int) -> dict[str, list[str]]:
+def plan_deep_reads(jobs: list[dict], full: bool | None, budget: int | None) -> dict[str, list[str]]:
     """United Ladder tracks to read down to Super Bronze this run, per dataset id.
 
     Oldest (or never read) medal data first, until about `budget` pages are used; `full` forces all (True) or none (False).
@@ -225,7 +307,7 @@ def plan_deep_reads(jobs: list[dict], full: bool | None, budget: int) -> dict[st
             for t in count_beats.load_tracks(str(ROOT / f) + opts):
                 k = known.get(t["name"], {})
                 cands.append((k.get("medals_at") or "", len(cands), job["id"], t["name"], k.get("deep_pages") or DEFAULT_DEEP_PAGES))
-    if full is True:
+    if full is True or (full is None and budget is None):
         chosen = cands
     elif full is False:
         chosen = []
@@ -291,6 +373,10 @@ def run_update(only=None, sources=None, full=None, budget=DEEP_BUDGET_PAGES) -> 
         meta.update({"failed": failed, "last_run_events": len(new_events), "last_run_started": started})
         write_json(DATA / "meta.json", meta)
         rebuild_site()
+        try:
+            write_csv()
+        except Exception:
+            log.exception("CSV export failed (the site is unaffected)")
         log.info("Update finished: %d new STM(s), %d dataset(s) failed%s", len(new_events), len(failed),
                  f" ({', '.join(failed)})" if failed else "")
         return {"new_events": len(new_events), "failed": failed, "updated": meta.get("updated")}
@@ -305,14 +391,20 @@ def is_updating() -> bool:
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser(description="Refresh STM data and detect new STMs.")
+    ap.add_argument("--export-csv", action="store_true", help="only rewrite stm-data.csv from the saved data (no downloads)")
     ap.add_argument("--only", nargs="+", choices=[j["id"] for j in JOBS], help="only these datasets")
     ap.add_argument("--source", nargs="+", choices=list(SOURCES), help="only these sources")
     depth = ap.add_mutually_exclusive_group()
-    depth.add_argument("--full", action="store_true", help="read every United Ladder track down to Super Bronze now (many requests)")
+    depth.add_argument("--full", action="store_true", help="read every United Ladder track down to Super Bronze (this is already the default without a budget)")
     depth.add_argument("--light", action="store_true", help="read United Ladder only down to the STM (no medal reads this run)")
     ap.add_argument("--deep-budget", type=int, default=DEEP_BUDGET_PAGES, metavar="PAGES",
-                    help=f"extra United Ladder pages to spend on medal data per run (default {DEEP_BUDGET_PAGES})")
+                    help="cap the extra United Ladder pages spent on medal data per run (default: no cap, every track is read down to Super Bronze)")
     args = ap.parse_args()
+    if args.export_csv:
+        ensure_state()
+        out = write_csv()
+        print(out or "nothing to export yet")
+        return
     try:
         summary = run_update(args.only, args.source, True if args.full else False if args.light else None, args.deep_budget)
     except KeyboardInterrupt:

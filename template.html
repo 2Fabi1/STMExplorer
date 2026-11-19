@@ -144,7 +144,7 @@
 
   <div class="stats" id="stats"></div>
   <div class="card"><div class="scroll" id="out"></div></div>
-  <footer><span id="note"></span> <span id="gen"></span></footer>
+  <footer><span id="note"></span> <span id="gen"></span> <a id="csv" href="stm-data.csv" download hidden>Download all data (CSV)</a></footer>
 </div>
 
 <script>
@@ -428,7 +428,7 @@ const asort = { key: "default", dir: "desc" };        // "default" = most tags d
 function medalCoverageNote(level) {
   if (source !== "ul" || level.id === "stm") return "";
   const have = all.tracks.filter(t => t.medals_at).length;
-  return have >= all.tracks.length ? "" : ` · medal data covers ${have} of ${all.tracks.length} tracks so far (read gradually to go easy on the host)`;
+  return have >= all.tracks.length ? "" : ` · medal data covers ${have} of ${all.tracks.length} tracks so far`;
 }
 
 function achievementData(level) {
@@ -606,7 +606,7 @@ function renderMerge() {
 const NOTES = {
   common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM).",
   tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. Players are matched by name, because user ids differ between tmuf and tmnf.",
-  ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Medal results (down to Super Bronze) are read gradually, a few hundred leaderboard pages a day, to go easy on the host: tracks not read yet show STM results only, and there is no \"slower than Super Bronze\" section.",
+  ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Medal results are read from the leaderboards down to the Super Bronze time, so there is no \"slower than Super Bronze\" section.",
 };
 const SUBS = { tmx: "How many tracks each player has a replay faster than the STM · data from tmuf.exchange & tmnf.exchange",
                ul: "How many tracks each player has an official record faster than the STM · data from UnitedLadder" };
@@ -671,6 +671,7 @@ function syncMerge() {
   $("#dl-ul").replaceChildren(...names("ul"));
   $("#dl-ex").replaceChildren(...names("tmx"));
 }
+if (location.protocol.startsWith("http")) $("#csv").hidden = false;     // the CSV sits next to the page when it is served
 if (SOURCES.length < 2) document.querySelector("[data-view=merge]").hidden = true;   // needs both sources
 $("#mg-ul").value = mg.ul; $("#mg-ex").value = mg.ex;
 $("#mg-ul").oninput = (e) => { mg.ul = e.target.value; saveMerge(); render(); };

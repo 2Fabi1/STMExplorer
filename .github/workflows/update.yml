@@ -59,6 +59,7 @@ jobs:
           state="$RUNNER_TEMP/state"
           rm -rf "$state" && mkdir "$state"
           cp data/*.json "$state"/
+          cp data/*.csv "$state"/ 2>/dev/null || true
           cd "$state"
           git init -q -b data
           git config user.name "github-actions[bot]"
@@ -71,6 +72,7 @@ jobs:
         run: |
           mkdir _site
           cp data/index.html data/events.json _site/
+          cp data/stm-data.csv _site/ 2>/dev/null || echo "no CSV this run"
 
       - uses: actions/upload-pages-artifact@v5
         with:
