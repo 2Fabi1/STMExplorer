@@ -363,7 +363,6 @@ function renderTracks(q) {
     rows = rows.map((t, i) => [t, i]).sort(([a, i], [b, j]) =>
       sgn * (sort.key === "name" ? a.name.localeCompare(b.name, undefined, { numeric: true })
                                  : sort.key === "pps" ? pps(a) - pps(b)
-                                 : sort.key === "place" ? (a.place ?? NO_HOLDERS) - (b.place ?? NO_HOLDERS)
                                  : a[sort.key] - b[sort.key]) || i - j).map(([t]) => t);
   }
   const tbody = el("tbody");
@@ -371,7 +370,6 @@ function renderTracks(q) {
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrack(t); } } },
     el("td", {}, el("span", { className: "tlink", textContent: t.name })),
     el("td", { className: "num", textContent: fv(t, t.set) }),
-    el("td", { className: "num", textContent: t.place == null ? "–" : "#" + t.place.toLocaleString("en-US") }),
     el("td", { className: "num", textContent: t.replays }),
     el("td", { className: "num", textContent: t.beaten_by }),
     el("td", { className: "num", textContent: fmtPps(t) }))));
@@ -379,7 +377,7 @@ function renderTracks(q) {
   const th = (label, key, cls = "num") => sortTh(label, key, sort, cls, key === "name");
   return [el("table", {}, el("thead", {}, el("tr", {},
     th("Track", "name", ""), el("th", { className: "num", textContent: "STM" }),
-    th("Place", "place"), th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"),
+    th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"),
     th("Players/STM", "pps"))), tbody)];
 }
 

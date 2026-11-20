@@ -363,7 +363,6 @@ function renderTracks(q) {
     rows = rows.map((t, i) => [t, i]).sort(([a, i], [b, j]) =>
       sgn * (sort.key === "name" ? a.name.localeCompare(b.name, undefined, { numeric: true })
                                  : sort.key === "pps" ? pps(a) - pps(b)
-                                 : sort.key === "place" ? (a.place ?? NO_HOLDERS) - (b.place ?? NO_HOLDERS)
                                  : a[sort.key] - b[sort.key]) || i - j).map(([t]) => t);
   }
   const tbody = el("tbody");
@@ -371,7 +370,6 @@ function renderTracks(q) {
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrack(t); } } },
     el("td", {}, el("span", { className: "tlink", textContent: t.name })),
     el("td", { className: "num", textContent: fv(t, t.set) }),
-    el("td", { className: "num", textContent: t.place == null ? "–" : "#" + t.place.toLocaleString("en-US") }),
     el("td", { className: "num", textContent: t.replays }),
     el("td", { className: "num", textContent: t.beaten_by }),
     el("td", { className: "num", textContent: fmtPps(t) }))));
@@ -379,7 +377,7 @@ function renderTracks(q) {
   const th = (label, key, cls = "num") => sortTh(label, key, sort, cls, key === "name");
   return [el("table", {}, el("thead", {}, el("tr", {},
     th("Track", "name", ""), el("th", { className: "num", textContent: "STM" }),
-    th("Place", "place"), th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"),
+    th(source === "ul" ? "Records" : "Replays", "replays"), th("Beat it", "beaten_by"),
     th("Players/STM", "pps"))), tbody)];
 }
 
@@ -728,7 +726,7 @@ function render() {
   $("#note").textContent = merging
     ? "Merged: a track counts as beaten if either your United Ladder record or your exchange replay is at or under the STM. " + NOTES.common
     : `${NOTES.common} ${NOTES[source]}`;
-  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-20 23:33.";
+  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-20 23:37.";
   $("#stats").hidden = view === "achievements" || merging;
   if (!$("#stats").hidden) renderStats();
   $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements,
@@ -794,7 +792,7 @@ render();
 </script>
 <script>
 // Fetch the data, then run the page code above (kept in the type="text/plain" block so it waits for the data).
-fetch("site-data.json?v=20261120233306")
+fetch("site-data.json?v=20261120233758")
   .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
   .then(d => { window.SITE_DATA = d; const s = document.createElement("script");
                s.textContent = document.getElementById("app").textContent; document.body.append(s); })
