@@ -66,7 +66,7 @@ download link** (`https://<site>.exchange/recordgbx/<replay id>`). The STM is th
 31 Dec 2015 on the exchange, so none of this ever changes; the scraper and the page read the file and **nothing is looked
 up again** — not on a refresh, and not on a redeploy (the page gets the info filled into the saved data from the file, with no
 network at all). The driver is the player of the earliest replay with exactly the STM result. Click a track in the Tracks tab
-to see the medals, the holder, the date and the download.
+to see the medals, the driver, the date and the download.
 
 Only a track that is missing from the file is ever looked up: `python stm_info.py` adds new tracks (the daily refresh does it
 automatically), `python stm_info.py --all` redoes everything. Commit the file after adding tracks.

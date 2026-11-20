@@ -545,7 +545,7 @@ function openTrack(t) {
     el("div", { className: "mtop" }, el("h2", { textContent: t.name }),
       el("button", { className: "x", ariaLabel: "Close", textContent: "✕", onclick: closeTrack })),
     el("div", { className: "msec", textContent: "Medals" }), ...medals,
-    el("div", { className: "msec", textContent: "STM holder" }), holder,
+    el("div", { className: "msec", textContent: "STM driver" }), holder,
     el("div", { className: "mfoot" },
       el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: "Open the track on the exchange" })));
   const overlay = el("div", { className: "overlay", onclick: (e) => { if (e.target === overlay) closeTrack(); } }, box);

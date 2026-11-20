@@ -545,7 +545,7 @@ function openTrack(t) {
     el("div", { className: "mtop" }, el("h2", { textContent: t.name }),
       el("button", { className: "x", ariaLabel: "Close", textContent: "✕", onclick: closeTrack })),
     el("div", { className: "msec", textContent: "Medals" }), ...medals,
-    el("div", { className: "msec", textContent: "STM holder" }), holder,
+    el("div", { className: "msec", textContent: "STM driver" }), holder,
     el("div", { className: "mfoot" },
       el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: "Open the track on the exchange" })));
   const overlay = el("div", { className: "overlay", onclick: (e) => { if (e.target === overlay) closeTrack(); } }, box);
@@ -726,7 +726,7 @@ function render() {
   $("#note").textContent = merging
     ? "Merged: a track counts as beaten if either your United Ladder record or your exchange replay is at or under the STM. " + NOTES.common
     : `${NOTES.common} ${NOTES[source]}`;
-  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-20 23:37.";
+  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-20 23:39.";
   $("#stats").hidden = view === "achievements" || merging;
   if (!$("#stats").hidden) renderStats();
   $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements,
@@ -792,7 +792,7 @@ render();
 </script>
 <script>
 // Fetch the data, then run the page code above (kept in the type="text/plain" block so it waits for the data).
-fetch("site-data.json?v=20261120233758")
+fetch("site-data.json?v=20261120233944")
   .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
   .then(d => { window.SITE_DATA = d; const s = document.createElement("script");
                s.textContent = document.getElementById("app").textContent; document.body.append(s); })
