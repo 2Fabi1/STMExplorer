@@ -36,6 +36,7 @@ from pathlib import Path
 
 import build_site
 import count_beats
+import stm_info
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -201,6 +202,8 @@ def write_csv() -> Path | None:
 
 
 def rebuild_site() -> None:
+    for path in data_files():
+        stm_info.fill(path)          # author medal + STM holder from stm-info.csv; never a download
     build_site.build(data_files(), out=DATA / "index.html",
                      events=read_json(DATA / "events.json", []), meta=read_json(DATA / "meta.json", {}))
 
@@ -335,6 +338,13 @@ def run_update(only=None, sources=None, full=None, budget=DEEP_BUDGET_PAGES) -> 
         ensure_state()
         TMP.mkdir(exist_ok=True)
         prune_logs()
+        try:   # the STM facts live in stm-info.csv; only a track that is missing from it is ever looked up
+            tracks = [t for job in JOBS for f, opts in job["tracks"] for t in count_beats.load_tracks(str(ROOT / f) + opts)]
+            added = stm_info.build(tracks)
+            if added:
+                log.info("Added %d new track(s) to stm-info.csv: %s", len(added), ", ".join(added))
+        except Exception:
+            log.exception("Could not look up the STM info of new tracks; continuing without it")
         jobs = [(j, s) for s in (sources or SOURCES) for j in JOBS if not only or j["id"] in only]
         plan = plan_deep_reads([j for j, s in jobs if s == "ul"], full, budget)
         log.info("Update started: %s | medal depth for %d United Ladder track(s) this run",

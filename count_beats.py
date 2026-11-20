@@ -24,7 +24,8 @@ There players are matched by their game login, and only records up to the Super 
 are fetched (leaderboards hold ~100k records, sorted best first).
 
 Medals: the RTM is the track's author medal (from the exchange API). Relative to the STM,
-Super Gold / Silver / Bronze sit 12.5% / 25% / 50% of the way from the STM towards the RTM.
+Super Gold / Silver / Bronze sit 12.5% / 25% / 50% of the way from the STM towards the RTM, rounded up
+(to the next hundredth of a second, or to a whole point for stunt scores).
 
 Players (tmx) are matched by user id when every file uses the same site; when several sites are
 mixed (user ids differ between tmuf and tmnf) they are matched by name, case-insensitively.
@@ -32,19 +33,23 @@ mixed (user ids differ between tmuf and tmnf) they are matched by name, case-ins
 import argparse
 import csv
 import json
+import math
 import re
 import sys
 import time
 from datetime import datetime, timezone
 from collections import defaultdict
+from fractions import Fraction
 
 import requests
+
+import stm_info
 
 PAGE = 1000
 UL_BASE = "https://api.ul.unitedascenders.xyz"
 UL_PAGE = 100                    # records per leaderboard page
 UL_STUNT_BASE = 4008636142       # UnitedLadder stores a stunt score as UL_STUNT_BASE - score
-# Super Gold / Silver / Bronze: this fraction of the way from the STM to the RTM (author medal).
+# Super Gold / Silver / Bronze: this fraction of the way from the STM to the RTM (author medal), rounded up.
 # The same formula works for stunt scores, where the RTM is lower than the STM.
 MEDAL_FRACTIONS = {"sg": 0.125, "ss": 0.25, "sb": 0.5}
 HEADERS = {"User-Agent": "tmuf-set-time-counter/1.0"}
@@ -110,9 +115,9 @@ def get_json(session, url, params, retries=5):
     raise RuntimeError("unreachable")
 
 
-def fetch_replays(session, track, delay=0.5):
+def fetch_replays(session, track, delay=0.5, extra_fields=""):
     """All replays of a track, paginated with `after` (last ReplayId)."""
-    fields = "ReplayId,ReplayTime,User.UserId,User.Name"
+    fields = "ReplayId,ReplayTime,User.UserId,User.Name" + extra_fields
     if track["mode"] == "score":
         fields += ",ReplayScore"
     url = f"https://{track['site']}.exchange/api/replays"
@@ -140,9 +145,14 @@ def strip_tm(s: str) -> str:
 
 
 def medal_limit(track, fraction):
-    """The result (ms or score) needed for a medal: `fraction` of the way from the STM to the RTM."""
+    """The result (ms or score) needed for a medal: `fraction` of the way from the STM to the RTM, rounded UP to the
+    next hundredth of a second (10 ms) for times or the next whole point for stunt scores. Exact arithmetic, an int."""
     rtm = track.get("rtm")
-    return track["set"] if rtm is None else track["set"] + fraction * (rtm - track["set"])
+    if rtm is None:
+        return track["set"]
+    exact = Fraction(track["set"]) + Fraction(fraction) * (rtm - track["set"])
+    step = 1 if track["mode"] == "score" else 10
+    return math.ceil(exact / step) * step
 
 
 def fetch_rtm(session, tracks):
@@ -235,7 +245,8 @@ def main():
     deep_tracks = set(args.deep_tracks)
     in_a_row = 0                # consecutive failed tracks; the run stops at 3 rather than keep hitting a struggling host
     session = requests.Session()
-    for name in fetch_rtm(session, tracks):
+    uncovered = stm_info.attach(tracks)          # author medal (RTM) and STM holder come from stm-info.csv
+    for name in fetch_rtm(session, uncovered):   # only a track missing from the CSV is looked up (run stm_info.py to add it)
         print(f"  WARNING: no author medal (RTM) for {name}; its medal times are unavailable", file=sys.stderr)
         failures.append(name)
 
@@ -299,6 +310,7 @@ def main():
         track_info.append({"name": t["name"], "id": t["id"], "set": t["set"], "site": t["site"],
                            "mode": t["mode"], "replays": total, "beaten_by": beaten, "place": place,
                            "rtm": t.get("rtm"),
+                           "wr": t.get("wr"),                 # who set the STM, from stm-info.csv
                            # UnitedLadder: when this track was last read down to Super Bronze (None = only to the STM)
                            **({"medals_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                                "deep_pages": pages} if ul and deep and total else {})})

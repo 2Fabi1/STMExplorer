@@ -46,8 +46,9 @@ serve `data/index.html` any way you like.
 ## Medals
 
 Besides the STM, results are graded by **Super Gold, Super Silver and Super Bronze**: they lie 12.5%, 25% and 50% of
-the way from the STM towards the track's author medal (RTM, read from the exchange API). The same formula works for
-stunt scores. The Players breakdown groups results behind the STM by medal, and Achievements can be filtered by
+the way from the STM towards the track's author medal (RTM, read from the exchange API), **rounded up** to the next
+hundredth of a second (StadiumA1: STM 22.08 → 22.18 / 22.28 / 22.48 → RTM 22.87). The same formula works for
+stunt scores (rounded up to a whole point). The Players breakdown groups results behind the STM by medal, and Achievements can be filtered by
 STM / Super Gold / Super Silver / Super Bronze. Only players with at least one STM are listed.
 
 ## Tags
@@ -57,6 +58,18 @@ players.trackmaniaforever.com/tags/71660–71675) next to their name in the Play
 the Merge tab lists the tags your merged account has earned. The 16 tags are United, Nations, Puzzle, Stunt; White, Green,
 Blue, Red, Black; Stadium, Island, Desert, Rally, Bay, Coast, Snow. Only STMs count: Super Gold, Silver and Bronze never
 earn a tag.
+
+## Static STM info (`stm-info.csv`)
+
+For every track this committed file holds the STM, the author medal (RTM) and **who set the STM, when, and the replay
+download link** (`https://<site>.exchange/recordgbx/<replay id>`). The STM is the world record as it stood on
+31 Dec 2015 on the exchange, so none of this ever changes; the scraper and the page read the file and **nothing is looked
+up again** — not on a refresh, and not on a redeploy (the page gets the info filled into the saved data from the file, with no
+network at all). The driver is the player of the earliest replay with exactly the STM result. Click a track in the Tracks tab
+to see the medals, the holder, the date and the download.
+
+Only a track that is missing from the file is ever looked up: `python stm_info.py` adds new tracks (the daily refresh does it
+automatically), `python stm_info.py --all` redoes everything. Commit the file after adding tracks.
 
 ## The CSV
 

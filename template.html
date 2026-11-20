@@ -95,6 +95,36 @@
   .pcell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
   .tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; }
   .tagimg { height: 30px; width: auto; display: block; }   /* the game's tag plaques are 150x64 */
+  /* hover picture on the Achievements columns */
+  .tagpop { position: fixed; z-index: 70; pointer-events: none; background: var(--card); border: 1px solid var(--line);
+            border-radius: 12px; padding: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+  .tagpop img { display: block; width: 250px; height: auto; }
+  /* track popup */
+  tr.track { cursor: pointer; }
+  tr.track:hover td { background: var(--accent-soft); }
+  .tlink { color: var(--accent); }
+  .overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.55); display: flex; align-items: center;
+             justify-content: center; padding: 16px; }
+  .modal { background: var(--card); border: 1px solid var(--line); border-radius: 14px; width: min(460px, 100%);
+           max-height: 90vh; overflow: auto; padding: 16px 18px 14px; box-shadow: 0 16px 50px rgba(0,0,0,.5); }
+  .mtop { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .mtop h2 { margin: 0; font-size: 20px; }
+  .x { border: 0; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; border-radius: 8px; padding: 4px 8px; }
+  .x:hover { color: var(--text); background: var(--accent-soft); }
+  .msec { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .mrow { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  .mname { flex: 1; }
+  .mval { font-variant-numeric: tabular-nums; }
+  .medal { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%;
+           font-size: 12px; font-weight: 800; color: #fff; border: 2px solid transparent; flex: none; }
+  .medal.stm { background: #16a34a; border-color: #4ade80; box-shadow: 0 0 8px #4ade8099; }
+  .medal.sg { background: #b7791f; border-color: #fcd34d; }
+  .medal.ss { background: #6b7280; border-color: #e5e7eb; }
+  .medal.sb { background: #9a5a1f; border-color: #e0903d; }
+  .medal.rtm { background: #14532d; border-color: #3f7a4f; }
+  .mholder { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .dl { display: inline-block; padding: 7px 12px; border-radius: 9px; background: var(--accent-soft); font-weight: 600; text-decoration: none; }
+  .mfoot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
   .chip.miss em { color: var(--gold); }
   .chip.tier0 em { color: var(--gold); }      /* Super Gold */
   .chip.tier1 em { color: var(--silver); }    /* Super Silver */
@@ -170,10 +200,15 @@ const DIFFS = [["A", "White", "#f3f4f6"], ["B", "Green", "#22c55e"], ["C", "Blue
 const DIFF_NAME = Object.fromEntries(DIFFS.map(([c, n]) => [c, n]));
 
 // ---- Medals. The RTM is the track's author medal; relative to the STM, Super Gold / Silver / Bronze lie
-// 12.5% / 25% / 50% of the way from the STM towards the RTM (the same formula works for stunt scores).
+// 12.5% / 25% / 50% of the way from the STM towards the RTM, rounded UP (to the next hundredth of a second, or to a
+// whole point for stunt scores), so StadiumA1 (STM 22.08, RTM 22.87) has 22.18 / 22.28 / 22.48.
 const MEDALS = [{ id: "stm", name: "STM", f: 0 }, { id: "sg", name: "Super Gold", f: 0.125 },
                 { id: "ss", name: "Super Silver", f: 0.25 }, { id: "sb", name: "Super Bronze", f: 0.5 }];
-const medalLimit = (t, f) => t.rtm == null ? t.set : t.set + f * (t.rtm - t.set);
+const medalLimit = (t, f) => {
+  if (t.rtm == null) return t.set;
+  const x = t.set + f * (t.rtm - t.set);                 // exact in floating point: f is 1/8, 1/4 or 1/2
+  return t.mode === "score" ? Math.ceil(x) : Math.ceil(x / 10) * 10;
+};
 const within = (t, v, limit) => t.mode === "score" ? v >= limit : v <= limit;   // time: lower is better; score: higher
 // 0 = beats the STM, 1 / 2 / 3 = Super Gold / Silver / Bronze, 4 = slower than Super Bronze
 function medalTier(t, v) {
@@ -181,11 +216,6 @@ function medalTier(t, v) {
   for (let k = 1; k <= 3; k++) if (within(t, v, medalLimit(t, MEDALS[k].f))) return k;
   return 4;
 }
-// A medal limit as a player would read it: times round down to the hundredth, scores round up.
-const shownLimit = (t, f) => { const x = medalLimit(t, f); return t.mode === "score" ? Math.ceil(x - 1e-9) : Math.floor(x / 10 + 1e-9) * 10; };
-const medalTip = (t) => t.rtm == null ? "" : [`STM ${fv(t, t.set)}`,
-  ...MEDALS.slice(1).map(m => `${m.name} ${t.mode === "score" ? "≥" : "≤"} ${fv(t, shownLimit(t, m.f))}`),
-  `RTM ${fv(t, t.rtm)}`].join(" · ");
 const U_RE = /^(Star)?(Stadium|Island|Desert|Rally|Bay|Coast|Snow)([A-E])\d?$/;
 function classify(name) {
   const m = U_RE.exec(name);
@@ -336,9 +366,10 @@ function renderTracks(q) {
                                  : a[sort.key] - b[sort.key]) || i - j).map(([t]) => t);
   }
   const tbody = el("tbody");
-  rows.forEach(t => tbody.append(el("tr", {},
-    el("td", {}, el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: t.name })),
-    el("td", { className: "num", textContent: fv(t, t.set), title: medalTip(t) }),
+  rows.forEach(t => tbody.append(el("tr", { className: "track", tabIndex: 0, onclick: () => openTrack(t),
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openTrack(t); } } },
+    el("td", {}, el("span", { className: "tlink", textContent: t.name })),
+    el("td", { className: "num", textContent: fv(t, t.set) }),
     el("td", { className: "num", textContent: t.place == null ? "–" : "#" + t.place.toLocaleString("en-US") }),
     el("td", { className: "num", textContent: t.replays }),
     el("td", { className: "num", textContent: t.beaten_by }),
@@ -461,7 +492,8 @@ const TAG_IMG = { U: 71660, N: 71661, P: 71662, S: 71663,                       
   dA: 71664, dB: 71665, dC: 71666, dD: 71667, dE: 71668,                                    // White, Green, Blue, Red, Black
   eStadium: 71669, eIsland: 71670, eDesert: 71671, eRally: 71672, eBay: 71673, eCoast: 71674, eSnow: 71675 };
 const tagTitle = (t) => TAGS_PRIMARY.some(g => g.id === t.id) ? `${t.name}: all ${t.total} STMs` : `${t.name} (United): all ${t.total} STMs`;
-const tagImg = (t) => el("img", { className: "tagimg", src: `https://players.trackmaniaforever.com/tags/${TAG_IMG[t.id]}.png`,
+const tagUrl = (id) => `https://players.trackmaniaforever.com/tags/${TAG_IMG[id]}.png`;
+const tagImg = (t) => el("img", { className: "tagimg", src: tagUrl(t.id),
   alt: t.name, title: tagTitle(t), loading: "lazy", onerror: (e) => e.target.remove() });   // no broken icon if the image can't load
 
 function doneTags() {   // player id -> tags completed at STM level, for the current source
@@ -476,6 +508,54 @@ function doneTags() {   // player id -> tags completed at STM level, for the cur
 const tagBadges = (id) => { const ts = doneTags().get(id); return ts ? [el("span", { className: "tags" }, ...ts.map(tagImg))] : []; };
 // a player-name cell: the name, then that player's tags
 const nameCell = (name, nick, id) => el("td", { title: nick || "" }, el("div", { className: "pcell" }, el("span", { textContent: name }), ...tagBadges(id)));
+
+// The achievement picture pops up when you hover (or focus) an Achievements column header.
+let tagPop = null;
+function showTagPop(tagId, anchor) {
+  if (!tagPop) { tagPop = el("div", { className: "tagpop", hidden: true }, el("img", { alt: "" })); document.body.append(tagPop); }
+  tagPop.firstChild.src = tagUrl(tagId);
+  tagPop.hidden = false;
+  const r = anchor.getBoundingClientRect(), w = 268, h = 124;
+  tagPop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+  tagPop.style.top = (r.bottom + 8 + h > innerHeight && r.top > h + 16 ? r.top - h - 8 : r.bottom + 8) + "px";
+}
+const hideTagPop = () => { if (tagPop) tagPop.hidden = true; };
+
+// Click a track: its medals, who set the STM, when, and the replay download. The STM is the world record as it
+// stood on 31 Dec 2015, from the exchange (see stm-info.csv).
+function closeTrack() { const m = document.querySelector(".overlay"); if (m) m.remove(); }
+function openTrack(t) {
+  closeTrack();
+  const site = t.site || "tmuf", wr = t.wr;
+  const medal = (cls, name, value, hint) => el("div", { className: "mrow" },
+    el("span", { className: `medal ${cls}`, textContent: cls === "rtm" ? "" : "S" }),
+    el("span", { className: "mname", textContent: name }), el("b", { className: "mval", textContent: value }),
+    ...(hint ? [el("span", { className: "muted", textContent: hint })] : []));
+  const lim = (f) => fv(t, medalLimit(t, f));
+  const medals = [medal("stm", "STM", fv(t, t.set))];
+  if (t.rtm != null) medals.push(medal("sg", "Super Gold", lim(0.125)), medal("ss", "Super Silver", lim(0.25)),
+    medal("sb", "Super Bronze", lim(0.5)), medal("rtm", "Author medal (RTM)", fv(t, t.rtm)));
+  const dateText = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });   // always English
+  const holder = wr
+    ? el("div", { className: "mholder" },
+        el("div", {}, "Set by ", el("a", { href: `https://${site}.exchange/usershow/${wr.uid}`, target: "_blank", rel: "noopener", textContent: wr.name }),
+          ` on ${dateText(wr.date)}`),
+        el("a", { className: "dl", href: `https://${site}.exchange/recordgbx/${wr.rid}`, rel: "noopener", textContent: "Download the replay (.gbx)" }),
+        el("span", { className: "muted", textContent: "The STM is the world record on 31 December 2015 (source: the exchange)." }))
+    : el("div", { className: "muted", textContent: "Nobody is recorded for this STM yet." });
+  const box = el("div", { className: "modal", role: "dialog", ariaModal: "true", ariaLabel: t.name },
+    el("div", { className: "mtop" }, el("h2", { textContent: t.name }),
+      el("button", { className: "x", ariaLabel: "Close", textContent: "✕", onclick: closeTrack })),
+    el("div", { className: "msec", textContent: "Medals" }), ...medals,
+    el("div", { className: "msec", textContent: "STM holder" }), holder,
+    el("div", { className: "mfoot" },
+      ...(t.place != null ? [el("span", { className: "muted", textContent: `On today's leaderboard the STM would be #${t.place.toLocaleString("en-US")}.` })] : []),
+      el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: "Open the track on the exchange" })));
+  const overlay = el("div", { className: "overlay", onclick: (e) => { if (e.target === overlay) closeTrack(); } }, box);
+  document.body.append(overlay);
+  box.querySelector(".x").focus();
+}
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeTrack(); });
 
 function renderAchievements(q) {
   const A = achievementData(am.level);
@@ -507,7 +587,9 @@ function renderAchievements(q) {
 
   const th = (t) => {
     const on = asort.key === t.id;
-    return el("th", { className: "num sortable", tabIndex: 0, title: `${t.total} tracks`,
+    return el("th", { className: "num sortable", tabIndex: 0,
+      onmouseenter: (e) => showTagPop(t.id, e.currentTarget), onmouseleave: hideTagPop,
+      onfocus: (e) => showTagPop(t.id, e.currentTarget), onblur: hideTagPop,
       ariaSort: on ? (asort.dir === "asc" ? "ascending" : "descending") : "none",
       onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: t.id, dir: "desc" }); render(); },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } } },
@@ -633,7 +715,7 @@ function renderMerge() {
 }
 
 const NOTES = {
-  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM).",
+  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM), rounded up.",
   tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. Players are matched by name, because user ids differ between tmuf and tmnf.",
   ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Medal results are read from the leaderboards down to the Super Bronze time, so there is no \"slower than Super Bronze\" section.",
 };
