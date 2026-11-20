@@ -141,6 +141,8 @@
   .chip.tier3 em { color: var(--muted); }     /* slower than Super Bronze */
   .chip em { font-style: normal; color: var(--good); margin-left: 4px; }
   .chip:hover { border-color: var(--accent); }
+  .chip .dk { display: inline-flex; align-items: center; justify-content: center; width: 11px; height: 11px; margin-right: 6px;
+              border-radius: 50%; background: #dc2626; border: 1.5px solid #f87171; color: #fff; font-weight: 800; font-size: 9px; line-height: 1; font-style: normal; vertical-align: -2px; }   /* Duck Medal badge, same red medal as in the track popup */
   .scroll { max-height: 70vh; overflow: auto; }
   .more { display: block; width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--line);
           background: var(--card); color: var(--accent); cursor: pointer; font: inherit; }
@@ -331,8 +333,10 @@ function renderPlayers(q) {
     tbody.append(tr);
     if (open.has(p.id)) {
       const chip = (name, v, miss, far) => {
-        const t = tmap[name];
-        return el("a", { className: "chip" + (miss ? " miss" : "") + (far != null ? ` tier${far}` : ""), href: link(t), target: "_blank", rel: "noopener" },
+        const t = tmap[name], duck = !miss && t.duck != null && within(t, v, t.duck);   // at or under the Duck Medal time
+        return el("a", { className: "chip" + (miss ? " miss" : "") + (far != null ? ` tier${far}` : "") + (duck ? " duck" : ""),
+          href: link(t), target: "_blank", rel: "noopener" },
+          ...(duck ? [el("i", { className: "dk" })] : []),
           name, el("em", { textContent: `${fv(t, v)} (${miss ? missBy(t, v) : delta(t, v)})` }));
       };
       const sec = (title, entries, miss, far) => {
@@ -778,7 +782,7 @@ function render() {
   $("#note").textContent = merging
     ? "Merged: a track counts as beaten if either your United Ladder record or your exchange replay is at or under the STM. " + NOTES.common
     : `${NOTES.common} ${NOTES[source]}`;
-  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-21 00:18.";
+  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-21 00:30.";
   $("#stats").hidden = view === "achievements" || merging;
   if (!$("#stats").hidden) renderStats();
   $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements,
@@ -844,7 +848,7 @@ render();
 </script>
 <script>
 // Fetch the data, then run the page code above (kept in the type="text/plain" block so it waits for the data).
-fetch("site-data.json?v=20261121001801")
+fetch("site-data.json?v=20261121003001")
   .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
   .then(d => { window.SITE_DATA = d; const s = document.createElement("script");
                s.textContent = document.getElementById("app").textContent; document.body.append(s); })
