@@ -121,7 +121,7 @@
   .medal.sg { background: #b7791f; border-color: #fcd34d; }
   .medal.ss { background: #6b7280; border-color: #e5e7eb; }
   .medal.sb { background: #9a5a1f; border-color: #e0903d; }
-  .medal.rtm { background: #14532d; border-color: #3f7a4f; }
+  .medal. { background: #14532d; border-color: #3f7a4f; }
   .mholder { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
   .dl { display: inline-block; padding: 7px 12px; border-radius: 9px; background: var(--accent-soft); font-weight: 600; text-decoration: none; }
   .mfoot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
@@ -534,7 +534,7 @@ function openTrack(t) {
   const lim = (f) => fv(t, medalLimit(t, f));
   const medals = [medal("stm", "STM", fv(t, t.set))];
   if (t.rtm != null) medals.push(medal("sg", "Super Gold", lim(0.125)), medal("ss", "Super Silver", lim(0.25)),
-    medal("sb", "Super Bronze", lim(0.5)), medal("rtm", "Author medal (RTM)", fv(t, t.rtm)));
+    medal("sb", "Super Bronze", lim(0.5)), medal("rtm", "Author medal", fv(t, t.rtm)));
   const dateText = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });   // always English
   const holder = wr
     ? el("div", { className: "mholder" },
