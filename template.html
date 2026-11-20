@@ -121,6 +121,14 @@
   .medal.sg { background: #b7791f; border-color: #fcd34d; }
   .medal.ss { background: #6b7280; border-color: #e5e7eb; }
   .medal.sb { background: #9a5a1f; border-color: #e0903d; }
+  .mrow.hoverable { cursor: help; border-radius: 8px; }
+  .mrow.hoverable:hover, .mrow.hoverable:focus-visible { background: var(--accent-soft); outline: none; }
+  .duckpop { position: fixed; z-index: 80; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+             padding: 8px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.4); font-size: 13px; min-width: 200px; max-width: 320px; }
+  .duckpop .dhead { color: var(--muted); font-size: 12px; margin: 2px 0 4px; }
+  .duckpop .drow { display: flex; justify-content: space-between; gap: 16px; padding: 1px 0; }
+  .duckpop .drow b { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .medal.duck { background: #dc2626; border-color: #f87171; box-shadow: 0 0 8px #f8717199; }
   .medal.rtm { background: #14532d; border-color: #3f7a4f; }
   .mholder { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
   .dl { display: inline-block; padding: 7px 12px; border-radius: 9px; background: var(--accent-soft); font-weight: 600; text-decoration: none; }
@@ -185,6 +193,7 @@
 const DATA = window.SITE_DATA.data;
 const EVENTS = window.SITE_DATA.events;   // new STMs detected by the daily update (see update.py)
 const META = window.SITE_DATA.meta;       // update timestamps
+const DUCKS = window.SITE_DATA.ducks || {};   // track name -> duck time in ms (ducks.csv); faster than the STM
 const $ = (s) => document.querySelector(s);
 const fmt = (ms) => { const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000;
   return m ? `${m}:${s.toFixed(2).padStart(5, "0")}` : s.toFixed(2); };
@@ -230,7 +239,7 @@ function classify(name) {
 // Merge every data file of a source into one dataset; players are merged by name for exchange replays
 // (user ids differ between tmuf and tmnf) and by game login for United Ladder.
 function merge(sets, source) {
-  const tracks = sets.flatMap(d => d.tracks).map(t => ({ ...t, ...classify(t.name) }));
+  const tracks = sets.flatMap(d => d.tracks).map(t => ({ ...t, ...classify(t.name), duck: DUCKS[t.name] ?? null }));
   const byId = new Map();
   for (const d of sets) for (const p of d.players) {
     const k = source === "ul" ? String(p.id).toLowerCase() : p.name.toLowerCase();   // ul: game login
@@ -480,9 +489,12 @@ function achievementData(level) {
     }
     const n = {};
     for (const tg of tags) { let c = 0; for (const name of qual) if (tg.names.has(name)) c++; n[tg.id] = c; }
-    return { id: p.id, name: p.name, nick: p.nick, n };
+    // ducks: tracks where the player is at or under the duck time (always an STM result, so it is in p.times)
+    let ducks = 0;
+    for (const name in p.times) { const t = tmap[name]; if (t && t.duck != null && within(t, p.times[name], t.duck)) ducks++; }
+    return { id: p.id, name: p.name, nick: p.nick, n, ducks };
   });
-  return (ach[level] = { tags, players });
+  return (ach[level] = { tags, players, duckTotal: all.tracks.filter(t => t.duck != null).length });
 }
 
 // --- Tags: the game's tag plaques, shown next to a player who beat EVERY STM of a category.
@@ -522,16 +534,40 @@ const hideTagPop = () => { if (tagPop) tagPop.hidden = true; };
 
 // Click a track: its medals, who set the STM, when, and the replay download. The STM is the world record as it
 // stood on 31 Dec 2015, from the exchange (see stm-info.csv).
-function closeTrack() { const m = document.querySelector(".overlay"); if (m) m.remove(); }
+function closeTrack() { hideDuckPop(); const m = document.querySelector(".overlay"); if (m) m.remove(); }
+
+// Hover list of the players who have the duck on a track (shown from the Ducks row of the track popup).
+let duckPop = null;
+function showDuckPop(t, list, anchor) {
+  if (!duckPop) { duckPop = el("div", { className: "duckpop", hidden: true }); document.body.append(duckPop); }
+  const MAX = 25;
+  duckPop.replaceChildren(
+    el("div", { className: "dhead", textContent: list.length ? `Players with the duck (${fv(t, t.duck)} or better)` : "Nobody has the duck yet" }),
+    ...list.slice(0, MAX).map(([name, v]) => el("div", { className: "drow" }, el("span", { textContent: name }), el("b", { textContent: fv(t, v) }))),
+    ...(list.length > MAX ? [el("div", { className: "dhead", textContent: `+${list.length - MAX} more` })] : []));
+  duckPop.hidden = false;
+  const r = anchor.getBoundingClientRect(), w = duckPop.offsetWidth, h = duckPop.offsetHeight;
+  duckPop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) + "px";
+  duckPop.style.top = Math.max(8, r.bottom + 6 + h > innerHeight - 8 ? r.top - h - 6 : r.bottom + 6) + "px";
+}
+function hideDuckPop() { if (duckPop) duckPop.hidden = true; }
 function openTrack(t) {
   closeTrack();
   const site = t.site || "tmuf", wr = t.wr;
   const medal = (cls, name, value, hint) => el("div", { className: "mrow" },
-    el("span", { className: `medal ${cls}`, textContent: cls === "rtm" ? "" : "S" }),
+    el("span", { className: `medal ${cls}`, textContent: cls === "rtm" ? "" : cls === "duck" ? "D" : "S" }),
     el("span", { className: "mname", textContent: name }), el("b", { className: "mval", textContent: value }),
     ...(hint ? [el("span", { className: "muted", textContent: hint })] : []));
   const lim = (f) => fv(t, medalLimit(t, f));
-  const medals = [medal("stm", "STM", fv(t, t.set))];
+  // players at or under the duck time, best first; shown in a hover list on the Ducks row
+  const duckList = t.duck == null ? [] : all.players.filter(p => p.times[t.name] != null && within(t, p.times[t.name], t.duck))
+    .map(p => [p.name, p.times[t.name]]).sort((a, b) => t.mode === "score" ? b[1] - a[1] : a[1] - b[1]);
+  const duckRows = t.duck == null ? [] : [Object.assign(
+    medal("duck", "Ducks", fv(t, t.duck), `${duckList.length} ${duckList.length === 1 ? "player" : "players"}`),
+    { className: "mrow hoverable", tabIndex: 0,
+      onmouseenter: (e) => showDuckPop(t, duckList, e.currentTarget), onmouseleave: hideDuckPop,
+      onfocus: (e) => showDuckPop(t, duckList, e.currentTarget), onblur: hideDuckPop })];
+  const medals = [...duckRows, medal("stm", "STM", fv(t, t.set))];
   if (t.rtm != null) medals.push(medal("sg", "Super Gold", lim(0.125)), medal("ss", "Super Silver", lim(0.25)),
     medal("sb", "Super Bronze", lim(0.5)), medal("rtm", "Author medal", fv(t, t.rtm)));
   const dateText = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });   // always English
@@ -566,9 +602,11 @@ function renderAchievements(q) {
 
   let rows = A.players.filter(p => tags.some(t => p.n[t.id] > 0) &&
     (!q || p.name.toLowerCase().includes(q) || (p.nick || "").toLowerCase().includes(q)));
-  const useKey = asort.key !== "default" && tags.some(t => t.id === asort.key);
+  const hasDucks = A.duckTotal > 0;
+  const useKey = asort.key !== "default" && (tags.some(t => t.id === asort.key) || (hasDucks && asort.key === "ducks"));
   rows.sort((a, b) => {
-    const cmp = useKey ? (b.n[asort.key] - a.n[asort.key]) || byDefault(a, b) : byDefault(a, b);
+    const val = (p) => asort.key === "ducks" ? p.ducks : p.n[asort.key];
+    const cmp = useKey ? (val(b) - val(a)) || byDefault(a, b) : byDefault(a, b);
     return asort.dir === "desc" ? cmp : -cmp;
   });
 
@@ -598,8 +636,17 @@ function renderAchievements(q) {
     return el("th", { className: "num sortable", tabIndex: 0, textContent: "Tags" + (on ? (asort.dir === "asc" ? " ▲" : " ▼") : ""),
       onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: "default", dir: "desc" }); render(); } });
   })();
+  const duckTh = () => {   // "Ducks" = on how many tracks the player is at or under the duck time
+    const on = asort.key === "ducks";
+    return el("th", { className: "num sortable", tabIndex: 0, title: "Tracks where the player is at or faster than the duck time",
+      textContent: "Ducks" + (on ? (asort.dir === "asc" ? " ▲" : " ▼") : ""),
+      ariaSort: on ? (asort.dir === "asc" ? "ascending" : "descending") : "none",
+      onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: "ducks", dir: "desc" }); render(); },
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } } });
+  };
   const head = el("thead", {},
-    el("tr", {}, el("th", { textContent: "#" }), el("th", { textContent: "Player" }), ...tags.map(th), doneTh));
+    el("tr", {}, el("th", { textContent: "#" }), el("th", { textContent: "Player" }), ...tags.map(th),
+      ...(hasDucks ? [duckTh()] : []), doneTh));
 
   const tbody = el("tbody");
   rows.slice(0, shown).forEach((p, i) => tbody.append(el("tr", {},
@@ -611,11 +658,14 @@ function renderAchievements(q) {
         `${full ? "✓ " : ""}${n}/${t.total}`,
         el("div", { className: "bar" }, Object.assign(el("i"), { style: `width:${100 * n / t.total}%` })));
     }),
+    ...(hasDucks ? [el("td", { className: "num prog" + (p.ducks === A.duckTotal ? " full" : p.ducks === 0 ? " zero" : "") },
+      `${p.ducks === A.duckTotal ? "✓ " : ""}${p.ducks}/${A.duckTotal}`,
+      el("div", { className: "bar" }, Object.assign(el("i"), { style: `width:${100 * p.ducks / A.duckTotal}%` })))] : []),
     el("td", { className: "num", textContent: `${done(p)}/${tags.length}` }))));
-  const W = { rank: 44, player: 170, tag: 88, done: 70 };   // fixed column widths (px); the tag columns share the rest
+  const W = { rank: 44, player: 170, tag: 88, duck: 88, done: 70 };   // fixed column widths (px); the tag columns share the rest
   const cols = el("colgroup", {}, el("col", { style: `width:${W.rank}px` }), el("col", { style: `width:${W.player}px` }),
-    ...tags.map(() => el("col")), el("col", { style: `width:${W.done}px` }));
-  const minWidth = W.rank + W.player + W.done + tags.length * W.tag;   // narrower screens scroll sideways instead of squeezing
+    ...tags.map(() => el("col")), ...(hasDucks ? [el("col", { style: `width:${W.duck}px` })] : []), el("col", { style: `width:${W.done}px` }));
+  const minWidth = W.rank + W.player + W.done + (hasDucks ? W.duck : 0) + tags.length * W.tag;   // narrower screens scroll sideways instead of squeezing
   const out = [bar, el("table", { className: "achv", style: `min-width:${minWidth}px` }, cols, head, tbody)];
   if (rows.length > shown) out.push(el("button", { className: "more", textContent: `Show more (${rows.length - shown} left)`,
     onclick: () => { shown += 200; render(); } }));
@@ -712,7 +762,7 @@ function renderMerge() {
 }
 
 const NOTES = {
-  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM), rounded up.",
+  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM), rounded up. Ducks are per-track times faster than the STM (ducks.csv); you have a duck on a track when your time is faster than or equal to it.",
   tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. Players are matched by name, because user ids differ between tmuf and tmnf.",
   ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Medal results are read from the leaderboards down to the Super Bronze time, so there is no \"slower than Super Bronze\" section.",
 };

@@ -98,6 +98,7 @@ are constants at the top of `update.py`.
 * `count_beats.py` — the scraper for one dataset; `build_site.py` + `template.html` — the page
 * `tracks*.txt` — track lists (`name  map-uid  exchange-id  STM`); edit these to add tracks
 * `*.json`, `results*.csv` — committed snapshots (seed data) from the manual runs
+* `ducks.csv` (`track,duck`) — a duck time per track, faster than the STM (United tracks only for now). The Tracks view and the track popup show it, and Achievements has a Ducks column counting the tracks where a player is at or under the duck time. Edit the CSV and redeploy to change it.
 * `data/` (git-ignored) — live state: current snapshots, `events.json`, `meta.json`, `index.html`, `stm-data.csv`, `logs/`
 
 ## No server: GitHub Actions + Pages

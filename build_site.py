@@ -6,6 +6,7 @@ Usage:
     python build_site.py a.json b.json --out data/index.html --events data/events.json --meta data/meta.json
 """
 import argparse
+import csv
 import json
 import os
 from datetime import datetime
@@ -19,6 +20,22 @@ def _embed(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 
 
+def _ms(text: str) -> int:
+    """'18.31' / '1:08.27' -> milliseconds."""
+    parts = text.strip().split(":")
+    mins = int(parts[-2]) if len(parts) > 1 else 0
+    return round((mins * 60 + float(parts[-1])) * 1000)
+
+
+def load_ducks(path=None) -> dict:
+    """ducks.csv (track,duck) -> {track name: duck time in ms}; empty if the file is missing."""
+    path = Path(path) if path else HERE / "ducks.csv"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        return {r["track"]: _ms(r["duck"]) for r in csv.DictReader(f) if r.get("track") and r.get("duck")}
+
+
 def build(files, out=None, events=None, meta=None) -> Path:
     """Render template.html with the given data files; returns the output path."""
     out = Path(out) if out else HERE / "index.html"
@@ -29,7 +46,7 @@ def build(files, out=None, events=None, meta=None) -> Path:
                 .replace("__BUILD__", now.strftime("%Y%m%d%H%M%S")))      # cache-buster for site-data.json
     # the data lives next to the page in site-data.json, which the page fetches when it opens
     site_data = out.with_name("site-data.json")
-    for path, text in ((site_data, _embed({"data": data, "events": events or [], "meta": meta or {}})), (out, html)):
+    for path, text in ((site_data, _embed({"data": data, "events": events or [], "meta": meta or {}, "ducks": load_ducks()})), (out, html)):
         tmp = path.with_name(path.name + ".tmp")    # write + rename so a server never serves half a file
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
