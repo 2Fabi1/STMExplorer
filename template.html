@@ -125,6 +125,7 @@
   .mrow.hoverable:hover, .mrow.hoverable:focus-visible { background: var(--accent-soft); outline: none; }
   .duckpop { position: fixed; z-index: 80; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
              padding: 8px 12px; box-shadow: 0 8px 30px rgba(0,0,0,.4); font-size: 13px; min-width: 200px; max-width: 320px; }
+  .mname small { font-size: 11px; color: var(--muted); margin-left: 6px; font-weight: 400; }
   .duckpop .dhead { color: var(--muted); font-size: 12px; margin: 2px 0 4px; }
   .duckpop .drow { display: flex; justify-content: space-between; gap: 16px; padding: 1px 0; }
   .duckpop .drow b { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -542,7 +543,7 @@ function showDuckPop(t, list, anchor) {
   if (!duckPop) { duckPop = el("div", { className: "duckpop", hidden: true }); document.body.append(duckPop); }
   const MAX = 25;
   duckPop.replaceChildren(
-    el("div", { className: "dhead", textContent: list.length ? `Players with the duck (${fv(t, t.duck)} or better)` : "Nobody has the duck yet" }),
+    el("div", { className: "dhead", textContent: list.length ? `Players with the Duck Medal (${fv(t, t.duck)} or better)` : "Nobody has the Duck Medal yet" }),
     ...list.slice(0, MAX).map(([name, v]) => el("div", { className: "drow" }, el("span", { textContent: name }), el("b", { textContent: fv(t, v) }))),
     ...(list.length > MAX ? [el("div", { className: "dhead", textContent: `+${list.length - MAX} more` })] : []));
   duckPop.hidden = false;
@@ -556,14 +557,15 @@ function openTrack(t) {
   const site = t.site || "tmuf", wr = t.wr;
   const medal = (cls, name, value, hint) => el("div", { className: "mrow" },
     el("span", { className: `medal ${cls}`, textContent: cls === "rtm" ? "" : cls === "duck" ? "D" : "S" }),
-    el("span", { className: "mname", textContent: name }), el("b", { className: "mval", textContent: value }),
+    el("span", { className: "mname" }, name, ...(cls === "duck" ? [el("small", { textContent: "(cheated time)" })] : [])),
+    el("b", { className: "mval", textContent: value }),
     ...(hint ? [el("span", { className: "muted", textContent: hint })] : []));
   const lim = (f) => fv(t, medalLimit(t, f));
   // players at or under the duck time, best first; shown in a hover list on the Ducks row
   const duckList = t.duck == null ? [] : all.players.filter(p => p.times[t.name] != null && within(t, p.times[t.name], t.duck))
     .map(p => [p.name, p.times[t.name]]).sort((a, b) => t.mode === "score" ? b[1] - a[1] : a[1] - b[1]);
   const duckRows = t.duck == null ? [] : [Object.assign(
-    medal("duck", "Ducks", fv(t, t.duck), `${duckList.length} ${duckList.length === 1 ? "player" : "players"}`),
+    medal("duck", "Duck Medal", fv(t, t.duck), `${duckList.length} ${duckList.length === 1 ? "player" : "players"}`),
     { className: "mrow hoverable", tabIndex: 0,
       onmouseenter: (e) => showDuckPop(t, duckList, e.currentTarget), onmouseleave: hideDuckPop,
       onfocus: (e) => showDuckPop(t, duckList, e.currentTarget), onblur: hideDuckPop })];
@@ -638,8 +640,8 @@ function renderAchievements(q) {
   })();
   const duckTh = () => {   // "Ducks" = on how many tracks the player is at or under the duck time
     const on = asort.key === "ducks";
-    return el("th", { className: "num sortable", tabIndex: 0, title: "Tracks where the player is at or faster than the duck time",
-      textContent: "Ducks" + (on ? (asort.dir === "asc" ? " ▲" : " ▼") : ""),
+    return el("th", { className: "num sortable", tabIndex: 0, title: "Tracks where the player is at or faster than the Duck Medal time (cheated time)",
+      textContent: "Duck Medals" + (on ? (asort.dir === "asc" ? " ▲" : " ▼") : ""),
       ariaSort: on ? (asort.dir === "asc" ? "ascending" : "descending") : "none",
       onclick: () => { Object.assign(asort, on ? { dir: asort.dir === "desc" ? "asc" : "desc" } : { key: "ducks", dir: "desc" }); render(); },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } } });
@@ -762,7 +764,7 @@ function renderMerge() {
 }
 
 const NOTES = {
-  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM), rounded up. Ducks are per-track times faster than the STM (ducks.csv); you have a duck on a track when your time is faster than or equal to it.",
+  common: "A time faster than or equal to the STM (or, on stunt tracks, a score higher than or equal to it) counts as a beat; each player counts at most once per track. Super Gold, Super Silver and Super Bronze lie 12.5%, 25% and 50% of the way from the STM towards the track's author medal (RTM), rounded up. The Duck Medal is a per-track time faster than the STM (a cheated time, from ducks.csv); you have it on a track when your time is faster than or equal to it.",
   tmx: "Data: replays uploaded to tmuf.exchange and tmnf.exchange. Players are matched by name, because user ids differ between tmuf and tmnf.",
   ul: "Data: the official in-game leaderboards via the UnitedLadder API (api.ul.unitedascenders.xyz); players are matched by game login. Medal results are read from the leaderboards down to the Super Bronze time, so there is no \"slower than Super Bronze\" section.",
 };
