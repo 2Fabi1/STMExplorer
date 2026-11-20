@@ -608,7 +608,7 @@ function renderAchievements(q) {
 
   let rows = A.players.filter(p => tags.some(t => p.n[t.id] > 0) &&
     (!q || p.name.toLowerCase().includes(q) || (p.nick || "").toLowerCase().includes(q)));
-  const hasDucks = A.duckTotal > 0;
+  const hasDucks = A.duckTotal > 0 && am.mode === "primary";   // not shown in the United sub-tags (bronze) section
   const useKey = asort.key !== "default" && (tags.some(t => t.id === asort.key) || (hasDucks && asort.key === "ducks"));
   rows.sort((a, b) => {
     const val = (p) => asort.key === "ducks" ? p.ducks : p.n[asort.key];

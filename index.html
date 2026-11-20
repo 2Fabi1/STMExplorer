@@ -608,7 +608,7 @@ function renderAchievements(q) {
 
   let rows = A.players.filter(p => tags.some(t => p.n[t.id] > 0) &&
     (!q || p.name.toLowerCase().includes(q) || (p.nick || "").toLowerCase().includes(q)));
-  const hasDucks = A.duckTotal > 0;
+  const hasDucks = A.duckTotal > 0 && am.mode === "primary";   // not shown in the United sub-tags (bronze) section
   const useKey = asort.key !== "default" && (tags.some(t => t.id === asort.key) || (hasDucks && asort.key === "ducks"));
   rows.sort((a, b) => {
     const val = (p) => asort.key === "ducks" ? p.ducks : p.n[asort.key];
@@ -782,7 +782,7 @@ function render() {
   $("#note").textContent = merging
     ? "Merged: a track counts as beaten if either your United Ladder record or your exchange replay is at or under the STM. " + NOTES.common
     : `${NOTES.common} ${NOTES[source]}`;
-  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-21 00:30.";
+  $("#gen").textContent = META.updated ? `Data updated ${new Date(META.updated).toLocaleString()}.` : "Generated 2026-11-21 00:40.";
   $("#stats").hidden = view === "achievements" || merging;
   if (!$("#stats").hidden) renderStats();
   $("#out").replaceChildren(...({ players: renderPlayers, tracks: renderTracks, improvements: renderImprovements,
@@ -848,7 +848,7 @@ render();
 </script>
 <script>
 // Fetch the data, then run the page code above (kept in the type="text/plain" block so it waits for the data).
-fetch("site-data.json?v=20261121003001")
+fetch("site-data.json?v=20261121004049")
   .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
   .then(d => { window.SITE_DATA = d; const s = document.createElement("script");
                s.textContent = document.getElementById("app").textContent; document.body.append(s); })
