@@ -27,7 +27,7 @@ Served URLs (nothing else on disk is exposed): `/` the site, `/events.json` ever
 put it behind a reverse proxy (Caddy, nginx) for HTTPS.
 
 Prefer cron / Task Scheduler over a long-running process? Run `python update.py` once a day instead and
-serve `data/index.html` any way you like.
+serve `data/index.html` and `data/site-data.json` (the page loads its data from that file, so it must be opened over http, not as a local file) any way you like.
 
 ## How "new STMs" work
 

@@ -176,14 +176,15 @@
   <div class="controls" id="subtabs" hidden></div>
 
   <div class="stats" id="stats"></div>
-  <div class="card"><div class="scroll" id="out"></div></div>
+  <div class="card"><div class="scroll" id="out"><p class="muted" style="padding:16px">Loading data…</p></div></div>
   <footer><span id="note"></span> <span id="gen"></span> <a id="csv" href="stm-data.csv" download hidden>Download all data (CSV)</a></footer>
 </div>
 
-<script>
-const DATA = __DATA__;
-const EVENTS = __EVENTS__;   // new STMs detected by the daily update (see update.py)
-const META = __META__;       // update timestamps
+<!-- The page code below does not run until site-data.json (every track and player) has been fetched; see the loader at the end. -->
+<script type="text/plain" id="app">
+const DATA = window.SITE_DATA.data;
+const EVENTS = window.SITE_DATA.events;   // new STMs detected by the daily update (see update.py)
+const META = window.SITE_DATA.meta;       // update timestamps
 const $ = (s) => document.querySelector(s);
 const fmt = (ms) => { const m = Math.floor(ms / 60000), s = (ms % 60000) / 1000;
   return m ? `${m}:${s.toFixed(2).padStart(5, "0")}` : s.toFixed(2); };
@@ -534,14 +535,13 @@ function openTrack(t) {
   const lim = (f) => fv(t, medalLimit(t, f));
   const medals = [medal("stm", "STM", fv(t, t.set))];
   if (t.rtm != null) medals.push(medal("sg", "Super Gold", lim(0.125)), medal("ss", "Super Silver", lim(0.25)),
-    medal("sb", "Super Bronze", lim(0.5)), medal("rtm", "Author medal (RTM)", fv(t, t.rtm)));
+    medal("sb", "Super Bronze", lim(0.5)), medal("rtm", "Author medal", fv(t, t.rtm)));
   const dateText = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });   // always English
   const holder = wr
     ? el("div", { className: "mholder" },
         el("div", {}, "Set by ", el("a", { href: `https://${site}.exchange/usershow/${wr.uid}`, target: "_blank", rel: "noopener", textContent: wr.name }),
           ` on ${dateText(wr.date)}`),
-        el("a", { className: "dl", href: `https://${site}.exchange/recordgbx/${wr.rid}`, rel: "noopener", textContent: "Download the replay (.gbx)" }),
-        el("span", { className: "muted", textContent: "The STM is the world record on 31 December 2015 (source: the exchange)." }))
+        el("a", { className: "dl", href: `https://${site}.exchange/recordgbx/${wr.rid}`, rel: "noopener", textContent: "Download the replay (.gbx)" }))
     : el("div", { className: "muted", textContent: "Nobody is recorded for this STM yet." });
   const box = el("div", { className: "modal", role: "dialog", ariaModal: "true", ariaLabel: t.name },
     el("div", { className: "mtop" }, el("h2", { textContent: t.name }),
@@ -549,7 +549,6 @@ function openTrack(t) {
     el("div", { className: "msec", textContent: "Medals" }), ...medals,
     el("div", { className: "msec", textContent: "STM holder" }), holder,
     el("div", { className: "mfoot" },
-      ...(t.place != null ? [el("span", { className: "muted", textContent: `On today's leaderboard the STM would be #${t.place.toLocaleString("en-US")}.` })] : []),
       el("a", { href: link(t), target: "_blank", rel: "noopener", textContent: "Open the track on the exchange" })));
   const overlay = el("div", { className: "overlay", onclick: (e) => { if (e.target === overlay) closeTrack(); } }, box);
   document.body.append(overlay);
@@ -792,6 +791,15 @@ $("#theme").onclick = () => {
   const now = r.dataset.theme || (dark ? "dark" : "light");
   r.dataset.theme = now === "dark" ? "light" : "dark"; };
 render();
+</script>
+<script>
+// Fetch the data, then run the page code above (kept in the type="text/plain" block so it waits for the data).
+fetch("site-data.json?v=__BUILD__")
+  .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+  .then(d => { window.SITE_DATA = d; const s = document.createElement("script");
+               s.textContent = document.getElementById("app").textContent; document.body.append(s); })
+  .catch(e => { document.getElementById("out").textContent = "Could not load site-data.json (" + e.message +
+                "). Open the site over http(s), for example the GitHub Pages link, not straight from a file."; });
 </script>
 </body>
 </html>

@@ -87,6 +87,9 @@ class Handler(BaseHTTPRequestHandler):
             if f.exists():
                 return self._send(200, f.read_bytes(), "text/html; charset=utf-8")
             return self._send(503, b"The site is not built yet - the first update is still running.", "text/plain")
+        if path == "/site-data.json":
+            f = update.DATA / "site-data.json"
+            return self._send(200 if f.exists() else 404, f.read_bytes() if f.exists() else b"Not built yet", "application/json")
         if path == "/events.json":
             f = update.DATA / "events.json"
             return self._send(200, f.read_bytes() if f.exists() else b"[]", "application/json")

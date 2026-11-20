@@ -23,14 +23,16 @@ def build(files, out=None, events=None, meta=None) -> Path:
     """Render template.html with the given data files; returns the output path."""
     out = Path(out) if out else HERE / "index.html"
     data = [json.loads(Path(f).read_text(encoding="utf-8")) for f in files]
+    now = datetime.now()
     html = (HERE / "template.html").read_text(encoding="utf-8")
-    html = (html.replace("__DATA__", _embed(data))
-                .replace("__EVENTS__", _embed(events or []))
-                .replace("__META__", _embed(meta or {}))
-                .replace("__GENERATED__", datetime.now().strftime("%Y-%m-%d %H:%M")))
-    tmp = out.with_name(out.name + ".tmp")          # write + rename so a server never serves half a file
-    tmp.write_text(html, encoding="utf-8")
-    os.replace(tmp, out)
+    html = (html.replace("__GENERATED__", now.strftime("%Y-%m-%d %H:%M"))
+                .replace("__BUILD__", now.strftime("%Y%m%d%H%M%S")))      # cache-buster for site-data.json
+    # the data lives next to the page in site-data.json, which the page fetches when it opens
+    site_data = out.with_name("site-data.json")
+    for path, text in ((site_data, _embed({"data": data, "events": events or [], "meta": meta or {}})), (out, html)):
+        tmp = path.with_name(path.name + ".tmp")    # write + rename so a server never serves half a file
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
     return out
 
 
